@@ -16,6 +16,6 @@ The desktop pet app (floating companion that mirrors Claude Code activity) lives
 - `restart` — use after code changes in ~/Code/pets.
 - `status` — prints pid plus live state JSON from `http://localhost:7387/state`: the pet's display state (asleep/idle/working/waiting/celebrating) and which Claude sessions it is tracking with their per-session state and idle seconds.
 
-Report results conversationally (e.g. "pet is running, currently working, tracking 2 sessions"). If status shows a session stuck in `working` with a large idleSeconds, that session likely died without a SessionEnd — it self-evicts after 30 minutes.
+Report results conversationally (e.g. "pet is running, currently working, tracking 2 sessions"). Quiet sessions decay automatically: `working` → `idle` after 3 min, `idle` evicts after 10 min (pet sleeps), `waiting` after 30 min.
 
 Logs: `/tmp/pets.log`. Hook config: managed by `~/Code/pets/scripts/install-hooks.sh` (idempotent, `--remove` to uninstall).

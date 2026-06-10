@@ -70,7 +70,7 @@ curl -XPOST localhost:7387/event -d '{"hook_event_name":"Stop","session_id":"s1"
 curl -XPOST localhost:7387/event -d '{"hook_event_name":"SessionEnd","session_id":"s1"}'   # asleep
 ```
 
-Sessions that die without a `SessionEnd` are evicted after 30 minutes of silence.
+States decay Codex-style when a session goes quiet: `working` → `idle` after 3 min (covers missed Stop events), `idle` sessions evict after 10 min (pet falls asleep), `waiting` after 30 min. Notifications only mean "needs you!" when Claude is blocked mid-task (permission prompt, question) — the post-Stop "waiting for your input" notification leaves the pet idle.
 
 ## Gotchas learned the hard way
 

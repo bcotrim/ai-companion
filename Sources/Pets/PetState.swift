@@ -3,6 +3,7 @@ import Foundation
 struct HookEvent: Decodable {
     let session_id: String?
     let hook_event_name: String?
+    let notification_type: String?
 }
 
 // Main-thread-only by construction: HTTP callbacks and timers all land on the main run loop.
@@ -16,7 +17,11 @@ final class StateModel {
     private(set) var display: DisplayState = .asleep
     var onChange: ((DisplayState) -> Void)?
 
-    private static let staleAfter: TimeInterval = 30 * 60
+    // Codex-style ambient decay: a state that stops receiving events winds down
+    // instead of sticking forever (covers missed Stop events and dead sessions).
+    private static let workingDecay: TimeInterval = 3 * 60    // working → idle
+    private static let idleDecay: TimeInterval = 10 * 60      // idle → evicted (asleep)
+    private static let waitingDecay: TimeInterval = 30 * 60   // waiting → evicted
 
     func handle(_ event: HookEvent) {
         guard let name = event.hook_event_name, let id = event.session_id else { return }
@@ -27,7 +32,14 @@ final class StateModel {
         case "UserPromptSubmit", "PreToolUse", "PostToolUse":
             sessions[id] = (.working, now)
         case "Notification":
-            sessions[id] = (.waiting, now)
+            // "needs you" only when blocked mid-task (permission prompt, question).
+            // The post-Stop "waiting for your input" notification arrives while the
+            // session is idle — that's just Claude being ready, not needing rescue.
+            if sessions[id]?.state == .working || event.notification_type == "permission_prompt" {
+                sessions[id] = (.waiting, now)
+            } else {
+                sessions[id] = (sessions[id]?.state ?? .idle, now)
+            }
         case "Stop":
             sessions[id] = (.idle, now)
             celebrateUntil = now.addingTimeInterval(2.5)
@@ -63,10 +75,10 @@ final class StateModel {
             stalenessTimer?.invalidate()
             stalenessTimer = nil
         } else if stalenessTimer == nil {
-            let t = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-                self?.evictStale()
+            let t = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                self?.decay()
             }
-            t.tolerance = 10
+            t.tolerance = 5
             stalenessTimer = t
         }
     }
@@ -78,9 +90,20 @@ final class StateModel {
         return "{\"display\": \"\(display)\", \"sessions\": {\(items.joined(separator: ", "))}}\n"
     }
 
-    private func evictStale() {
-        let cutoff = Date().addingTimeInterval(-Self.staleAfter)
-        sessions = sessions.filter { $0.value.lastSeen > cutoff }
+    private func decay() {
+        for (id, s) in sessions {
+            let quiet = -s.lastSeen.timeIntervalSinceNow
+            switch s.state {
+            case .working where quiet > Self.workingDecay:
+                sessions[id]?.state = .idle
+            case .idle where quiet > Self.idleDecay:
+                sessions[id] = nil
+            case .waiting where quiet > Self.waitingDecay:
+                sessions[id] = nil
+            default:
+                break
+            }
+        }
         syncStalenessTimer()
         recompute()
     }
