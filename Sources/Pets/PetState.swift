@@ -13,6 +13,8 @@ final class StateModel {
     private var sessions: [String: (state: SessionState, lastSeen: Date)] = [:]
     private var celebrateUntil: Date = .distantPast
     private var celebrateTimer: Timer?
+    private var failedUntil: Date = .distantPast
+    private var failedTimer: Timer?
     private var stalenessTimer: Timer?
     private(set) var display: DisplayState = .asleep
     var onChange: ((DisplayState) -> Void)?
@@ -31,6 +33,14 @@ final class StateModel {
             sessions[id] = (.idle, now)
         case "UserPromptSubmit", "PreToolUse", "PostToolUse":
             sessions[id] = (.working, now)
+        case "PostToolUseFailure":
+            // Claude keeps going after a failed tool — brief "oops!", still working.
+            sessions[id] = (.working, now)
+            failedUntil = now.addingTimeInterval(3)
+            failedTimer?.invalidate()
+            failedTimer = Timer.scheduledTimer(withTimeInterval: 3.1, repeats: false) { [weak self] _ in
+                self?.recompute()
+            }
         case "Notification":
             // "needs you" only when blocked mid-task (permission prompt, question).
             // The post-Stop "waiting for your input" notification arrives while the
@@ -59,7 +69,8 @@ final class StateModel {
     private func recompute() {
         let states = sessions.values.map(\.state)
         let new: DisplayState
-        if states.contains(.working) { new = .working }
+        if Date() < failedUntil { new = .failed }
+        else if states.contains(.working) { new = .working }
         else if states.contains(.waiting) { new = .waiting }
         else if Date() < celebrateUntil { new = .celebrating }
         else if !sessions.isEmpty { new = .idle }

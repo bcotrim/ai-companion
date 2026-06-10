@@ -208,6 +208,7 @@ final class PetController: NSObject, NSMenuDelegate {
         case .working: return "working…"
         case .waiting: return "needs you!"
         case .celebrating: return "done!"
+        case .failed: return "oops!"
         }
     }
 

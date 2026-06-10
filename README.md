@@ -53,7 +53,8 @@ The format (from open-source `codex-rs/tui/src/pets/`): a folder with `pet.json`
 | 2 | running-left | dragging left |
 | 3 | waving | done! |
 | 4 | jumping | hover |
-| 6 | waiting | needs you! |
+| 5 | failed | oops! (a tool call failed) |
+| 6 | waiting | needs you! (plus a ❗ badge) |
 | 7 | running | working… |
 
 Custom `frame` / `animations` overrides in `pet.json` are honored. Frames are copied into small downscaled bitmaps at load so the full decoded sheets are released immediately.

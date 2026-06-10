@@ -70,9 +70,8 @@ func loadCodexPet(_ ref: CodexPetRef) -> Pet? {
         .asleep: [idle[0]],
         .idle: idle,
         .working: frames(["running"]) ?? idle,
-        // The Codex "waiting" row marches in place and reads as busy;
-        // the sad/pleading row is unmistakably "I need you".
-        .waiting: frames(["failed", "sad", "waiting"]) ?? idle,
+        .waiting: frames(["waiting"]) ?? idle,
+        .failed: frames(["failed", "sad"]) ?? idle,
         .celebrating: frames(["waving", "jumping"]) ?? idle,
         .hover: frames(["jumping", "bounce", "waving"]) ?? idle,
         .dragLeft: frames(["running-left", "move_left"]) ?? idle,

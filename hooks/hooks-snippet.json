@@ -4,6 +4,7 @@
     "UserPromptSubmit": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
     "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
     "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
+    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
     "Notification": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
     "Stop": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }],
     "SessionEnd": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:7387/event", "timeout": 1 }] }]
