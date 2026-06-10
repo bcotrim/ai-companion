@@ -41,6 +41,11 @@ final class StateModel {
             failedTimer = Timer.scheduledTimer(withTimeInterval: 3.1, repeats: false) { [weak self] _ in
                 self?.recompute()
             }
+        case "PermissionRequest":
+            // Fires the instant a permission prompt appears — no notification lag.
+            sessions[id] = (.waiting, now)
+        case "PermissionDenied":
+            sessions[id] = (.working, now)
         case "Notification":
             // "needs you" only when blocked mid-task (permission prompt, question).
             // The post-Stop "waiting for your input" notification arrives while the

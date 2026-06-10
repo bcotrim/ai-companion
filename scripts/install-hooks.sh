@@ -13,7 +13,8 @@ import json, os, sys, time
 
 path, url, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-          "PostToolUseFailure", "Notification", "Stop", "SessionEnd"]
+          "PostToolUseFailure", "PermissionRequest", "PermissionDenied",
+          "Notification", "Stop", "SessionEnd"]
 
 settings = {}
 if os.path.exists(path):
@@ -40,7 +41,8 @@ else:
         if any(h.get("url") == url for g in groups for h in g.get("hooks", [])):
             continue
         group = {"hooks": [{"type": "http", "url": url, "timeout": 1}]}
-        if ev in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
+        if ev in ("PreToolUse", "PostToolUse", "PostToolUseFailure",
+                  "PermissionRequest", "PermissionDenied"):
             group["matcher"] = "*"
         groups.append(group)
         changed.append(ev)
