@@ -20,8 +20,8 @@ struct Pet {
     }
 
     func interval(for state: DisplayState) -> TimeInterval {
-        if state == .idle { return isSprite ? 0.8 : 2.0 }
-        return isSprite ? 0.15 : 0.45
+        if state == .idle { return isSprite ? 1.0 : 2.0 }
+        return isSprite ? 0.2 : 0.45
     }
 
     static func standard(_ name: String, _ base: String) -> Pet {
