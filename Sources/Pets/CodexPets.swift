@@ -28,6 +28,7 @@ private let defaultAnimations: [String: [Int]] = [
     "running-left": Array(16..<24),   // row 2
     "waving": Array(24..<28),         // row 3
     "jumping": Array(32..<37),        // row 4
+    "failed": Array(40..<48),         // row 5
     "waiting": Array(48..<54),        // row 6
     "running": Array(56..<62),        // row 7
 ]
@@ -69,7 +70,9 @@ func loadCodexPet(_ ref: CodexPetRef) -> Pet? {
         .asleep: [idle[0]],
         .idle: idle,
         .working: frames(["running"]) ?? idle,
-        .waiting: frames(["waiting"]) ?? idle,
+        // The Codex "waiting" row marches in place and reads as busy;
+        // the sad/pleading row is unmistakably "I need you".
+        .waiting: frames(["failed", "sad", "waiting"]) ?? idle,
         .celebrating: frames(["waving", "jumping"]) ?? idle,
         .hover: frames(["jumping", "bounce", "waving"]) ?? idle,
         .dragLeft: frames(["running-left", "move_left"]) ?? idle,

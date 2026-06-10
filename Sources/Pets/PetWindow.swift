@@ -76,6 +76,7 @@ final class PetController: NSObject, NSMenuDelegate {
     private let petLabel = NSTextField(labelWithString: "")
     private let petImageView = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
+    private let badgeLabel = NSTextField(labelWithString: "❗")
     private var timer: Timer?
     private var frameIndex = 0
     private var sessionDisplay: DisplayState = .asleep
@@ -115,13 +116,19 @@ final class PetController: NSObject, NSMenuDelegate {
         stack.spacing = 2
         stack.translatesAutoresizingMaskIntoConstraints = false
 
+        badgeLabel.font = .systemFont(ofSize: 28)
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+
         panel.contentView = petView
         petView.addSubview(stack)
+        petView.addSubview(badgeLabel)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: petView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: petView.centerYAnchor),
             petImageView.heightAnchor.constraint(equalToConstant: petDisplayHeight),
             petImageView.widthAnchor.constraint(equalToConstant: petDisplayHeight),
+            badgeLabel.centerXAnchor.constraint(equalTo: petImageView.trailingAnchor, constant: -6),
+            badgeLabel.centerYAnchor.constraint(equalTo: petImageView.topAnchor, constant: 10),
         ])
 
         let menu = NSMenu()
@@ -190,6 +197,8 @@ final class PetController: NSObject, NSMenuDelegate {
         let text = showStatus ? statusText : ""
         statusLabel.stringValue = text
         statusLabel.isHidden = text.isEmpty
+        // Sprite pets get an attention badge regardless of the text toggle.
+        badgeLabel.isHidden = !(pet.isSprite && sessionDisplay == .waiting)
     }
 
     private var statusText: String {
