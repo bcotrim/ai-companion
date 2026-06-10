@@ -14,11 +14,20 @@ Zero dependencies, ~600 lines of Swift, no Electron. ~0% CPU and ~35 MB when idl
 
 Claude Code [hooks](https://code.claude.com/docs/en/hooks) support `"type": "http"`, which POSTs each lifecycle event (SessionStart, PreToolUse, Notification, Stop, …) to a URL. The app runs a minimal hand-rolled HTTP listener on `127.0.0.1:7387`, replies 200 instantly, and rolls all concurrent Claude sessions up into one pet state. Hooks use `timeout: 1`, and when the app isn't running, loopback connection-refused fails in microseconds — Claude Code is never slowed down.
 
-## Setup
+## Install
+
+**Download** (Apple Silicon): grab `AICompanion.zip` from the [latest release](https://github.com/bcotrim/ai-companion/releases/latest), unzip, move `AICompanion.app` to /Applications and open it. On first launch it offers to install the Claude Code hooks for you. The build is ad-hoc signed (not notarized), so the first open needs right-click → Open, or:
+
+```sh
+xattr -d com.apple.quarantine /Applications/AICompanion.app
+```
+
+**From source** (any Mac):
 
 ```sh
 make start          # build (release) and launch detached
 make install-hooks  # safely merge hooks into ~/.claude/settings.json
+make app            # or: build the .app bundle yourself (dist/AICompanion.zip)
 ```
 
 The hook installer backs up your settings, appends (never replaces) entries, and is idempotent; `make uninstall-hooks` reverts. Prefer manual setup? Merge `hooks/hooks-snippet.json` yourself. Running Claude Code sessions pick the hooks up on their next turn.

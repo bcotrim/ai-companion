@@ -25,4 +25,6 @@ let server = try HttpServer(port: serverPort) { body in
 server.stateProvider = { model.debugJSON }
 server.start()
 
+maybeOfferHooksInstall()
+
 app.run()
