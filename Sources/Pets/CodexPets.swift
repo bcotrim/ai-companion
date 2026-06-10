@@ -31,6 +31,7 @@ private let defaultAnimations: [String: [Int]] = [
     "failed": Array(40..<48),         // row 5
     "waiting": Array(48..<54),        // row 6
     "running": Array(56..<62),        // row 7
+    "review": Array(64..<70),         // row 8
 ]
 
 let petDisplayHeight: CGFloat = 136
@@ -66,11 +67,17 @@ func loadCodexPet(_ ref: CodexPetRef) -> Pet? {
         return nil
     }
     guard let idle = frames(["idle"]) else { return nil }
+    // Needs-you alternates a stretch of the waiting row with a couple of waves —
+    // the wave is a much clearer "hey, over here!" than marching alone.
+    let waitingRow = frames(["waiting"]) ?? idle
+    var needsYou = waitingRow + waitingRow + waitingRow
+    if let wave = frames(["waving"]) { needsYou += wave + wave }
     return Pet(id: ref.id, name: ref.name, isSprite: true, frames: [
         .asleep: [idle[0]],
         .idle: idle,
         .working: frames(["running"]) ?? idle,
-        .waiting: frames(["waiting"]) ?? idle,
+        .reviewing: frames(["review", "running"]) ?? idle,
+        .waiting: needsYou,
         .failed: frames(["failed", "sad"]) ?? idle,
         .celebrating: frames(["waving", "jumping"]) ?? idle,
         .hover: frames(["jumping", "bounce", "waving"]) ?? idle,

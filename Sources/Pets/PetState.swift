@@ -4,13 +4,19 @@ struct HookEvent: Decodable {
     let session_id: String?
     let hook_event_name: String?
     let notification_type: String?
+    let permission_mode: String?
 }
 
 // Main-thread-only by construction: HTTP callbacks and timers all land on the main run loop.
 final class StateModel {
     private enum SessionState { case idle, working, waiting }
+    private struct Session {
+        var state: SessionState
+        var lastSeen: Date
+        var plan: Bool
+    }
 
-    private var sessions: [String: (state: SessionState, lastSeen: Date)] = [:]
+    private var sessions: [String: Session] = [:]
     private var celebrateUntil: Date = .distantPast
     private var celebrateTimer: Timer?
     private var failedUntil: Date = .distantPast
@@ -28,14 +34,23 @@ final class StateModel {
     func handle(_ event: HookEvent) {
         guard let name = event.hook_event_name, let id = event.session_id else { return }
         let now = Date()
+
+        func set(_ state: SessionState) {
+            var session = sessions[id] ?? Session(state: state, lastSeen: now, plan: false)
+            session.state = state
+            session.lastSeen = now
+            if let mode = event.permission_mode { session.plan = (mode == "plan") }
+            sessions[id] = session
+        }
+
         switch name {
         case "SessionStart":
-            sessions[id] = (.idle, now)
+            set(.idle)
         case "UserPromptSubmit", "PreToolUse", "PostToolUse":
-            sessions[id] = (.working, now)
+            set(.working)
         case "PostToolUseFailure":
             // Claude keeps going after a failed tool — brief "oops!", still working.
-            sessions[id] = (.working, now)
+            set(.working)
             failedUntil = now.addingTimeInterval(3)
             failedTimer?.invalidate()
             failedTimer = Timer.scheduledTimer(withTimeInterval: 3.1, repeats: false) { [weak self] _ in
@@ -43,20 +58,20 @@ final class StateModel {
             }
         case "PermissionRequest":
             // Fires the instant a permission prompt appears — no notification lag.
-            sessions[id] = (.waiting, now)
+            set(.waiting)
         case "PermissionDenied":
-            sessions[id] = (.working, now)
+            set(.working)
         case "Notification":
             // "needs you" only when blocked mid-task (permission prompt, question).
             // The post-Stop "waiting for your input" notification arrives while the
             // session is idle — that's just Claude being ready, not needing rescue.
             if sessions[id]?.state == .working || event.notification_type == "permission_prompt" {
-                sessions[id] = (.waiting, now)
+                set(.waiting)
             } else {
-                sessions[id] = (sessions[id]?.state ?? .idle, now)
+                set(sessions[id]?.state ?? .idle)
             }
         case "Stop":
-            sessions[id] = (.idle, now)
+            set(.idle)
             celebrateUntil = now.addingTimeInterval(2.5)
             celebrateTimer?.invalidate()
             celebrateTimer = Timer.scheduledTimer(withTimeInterval: 2.6, repeats: false) { [weak self] _ in
@@ -65,18 +80,19 @@ final class StateModel {
         case "SessionEnd":
             sessions[id] = nil
         default:
-            sessions[id] = (sessions[id]?.state ?? .idle, now)
+            set(sessions[id]?.state ?? .idle)
         }
         syncStalenessTimer()
         recompute()
     }
 
     private func recompute() {
-        let states = sessions.values.map(\.state)
+        let active = sessions.values
+        let workers = active.filter { $0.state == .working }
         let new: DisplayState
         if Date() < failedUntil { new = .failed }
-        else if states.contains(.working) { new = .working }
-        else if states.contains(.waiting) { new = .waiting }
+        else if !workers.isEmpty { new = workers.allSatisfy(\.plan) ? .reviewing : .working }
+        else if active.contains(where: { $0.state == .waiting }) { new = .waiting }
         else if Date() < celebrateUntil { new = .celebrating }
         else if !sessions.isEmpty { new = .idle }
         else { new = .asleep }
@@ -101,7 +117,7 @@ final class StateModel {
 
     var debugJSON: String {
         let items = sessions.map { id, s in
-            "\"\(id)\": {\"state\": \"\(s.state)\", \"idleSeconds\": \(Int(-s.lastSeen.timeIntervalSinceNow))}"
+            "\"\(id)\": {\"state\": \"\(s.state)\", \"plan\": \(s.plan), \"idleSeconds\": \(Int(-s.lastSeen.timeIntervalSinceNow))}"
         }
         return "{\"display\": \"\(display)\", \"sessions\": {\(items.joined(separator: ", "))}}\n"
     }
