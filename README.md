@@ -44,6 +44,8 @@ The hook installer backs up your settings, appends (never replaces) entries, and
 
 Pets hatched in OpenAI Codex (`/hatch`) work without copying or converting: the app reads `~/.codex/pets/<id>/` **in place** (read-only — they keep working in Codex) and also scans `~/.claude/pets/` for pets in the same format. Use **Pet → Reload Pets** after hatching a new one.
 
+The default pet, **Wapuu**, ships inside the app in this same format (`Sources/Pets/Resources/wapuu/`); a same-id pet in your user dirs is ignored.
+
 The format (from open-source `codex-rs/tui/src/pets/`): a folder with `pet.json` + `spritesheet.webp`, an 8×9 grid of 192×208 px cells (1536×1872 total), row-major:
 
 | Row | Animation | Used for |

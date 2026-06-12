@@ -5,6 +5,8 @@ import AppKit
 // fixed meanings; pet.json may override the grid and animation frame indices.
 // We read these in place so they keep working in Codex untouched.
 // Pets are scanned cheaply (JSON only); spritesheets decode lazily on selection.
+// The app ships Wapuu (the default pet) in its resource bundle, scanned first —
+// a same-id copy in the user dirs is ignored.
 
 struct CodexPetRef {
     let id: String
@@ -37,12 +39,14 @@ private let defaultAnimations: [String: [Int]] = [
 let petDisplayHeight: CGFloat = 136
 
 let codexPetDirs: [URL] = [
+    Bundle.module.resourceURL,
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/pets"),
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/pets"),
-]
+].compactMap { $0 }
 
 func scanCodexPets() -> [CodexPetRef] {
-    codexPetDirs.flatMap { dir -> [CodexPetRef] in
+    var seen = Set<String>()
+    return codexPetDirs.flatMap { dir -> [CodexPetRef] in
         let entries = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         return entries.compactMap { petDir in
@@ -52,6 +56,7 @@ func scanCodexPets() -> [CodexPetRef] {
         }
         .sorted { $0.name < $1.name }
     }
+    .filter { seen.insert($0.id).inserted }
 }
 
 func loadCodexPet(_ ref: CodexPetRef) -> Pet? {

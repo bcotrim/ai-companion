@@ -6,6 +6,7 @@ app: build
 	rm -rf dist
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp .build/release/pets $(APP)/Contents/MacOS/pets
+	cp -R .build/release/pets_pets.bundle $(APP)/Contents/Resources/
 	cp app/Info.plist $(APP)/Contents/Info.plist
 	cp scripts/install-hooks.sh $(APP)/Contents/Resources/install-hooks.sh
 	codesign --force --sign - $(APP)

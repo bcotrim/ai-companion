@@ -9,7 +9,7 @@ Claude Code hooks (`"type": "http"`) POST lifecycle events to a loopback-only li
 - `Sources/Pets/HttpServer.swift` — hand-rolled HTTP; always replies 200 instantly, never makes Claude Code wait
 - `Sources/Pets/PetState.swift` — rolls all concurrent sessions into one `DisplayState`, with decay (working→idle 3 min, idle evicts 10 min, waiting 30 min)
 - `Sources/Pets/PetWindow.swift` — floating always-on-top panel: drag, hover, right-click menu
-- `Sources/Pets/CodexPets.swift` — reads Codex-format pets from `~/.codex/pets/` and `~/.claude/pets/` in place, read-only
+- `Sources/Pets/CodexPets.swift` — reads Codex-format pets from the app's resource bundle (Wapuu, the default) plus `~/.codex/pets/` and `~/.claude/pets/` in place, read-only
 
 Everything is main-thread-only by construction (HTTP callbacks and timers land on the main run loop) — no locks; don't introduce background queues.
 

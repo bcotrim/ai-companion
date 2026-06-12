@@ -89,7 +89,7 @@ final class PetController: NSObject, NSMenuDelegate {
 
     override init() {
         codexRefs = scanCodexPets()
-        let savedID = UserDefaults.standard.string(forKey: "petID")
+        let savedID = UserDefaults.standard.string(forKey: "petID") ?? "codex:wapuu"
         pet = builtinPets.first { $0.id == savedID }
             ?? codexRefs.first { $0.id == savedID }.flatMap(loadCodexPet)
             ?? builtinPets[0]
