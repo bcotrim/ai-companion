@@ -1,4 +1,4 @@
-.PHONY: build run start stop restart status install-hooks uninstall-hooks clean app
+.PHONY: build run start stop restart status install-hooks uninstall-hooks validate-pet clean app
 
 APP = dist/AICompanion.app
 
@@ -27,6 +27,10 @@ install-hooks:
 
 uninstall-hooks:
 	./scripts/install-hooks.sh --remove
+
+validate-pet:
+	@test -n "$(PET)" || (echo "usage: make validate-pet PET=/path/to/pet-folder-or.zip" >&2; exit 2)
+	./scripts/validate-pet.sh "$(PET)"
 
 clean:
 	swift package clean

@@ -8,6 +8,9 @@ app.setActivationPolicy(.accessory)
 let controller = PetController()
 let model = StateModel()
 model.onChange = { controller.apply(state: $0) }
+controller.sessionProvider = { model.sessionSummaries }
+controller.lastEventProvider = { model.lastEvent }
+controller.detailProvider = { model.displayDetail }
 
 let decoder = JSONDecoder()
 let server = try HttpServer(port: serverPort) { body in

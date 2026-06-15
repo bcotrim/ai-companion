@@ -36,15 +36,21 @@ The hook installer backs up your settings, appends (never replaces) entries, and
 
 - **Drag** the pet anywhere — it plays the run-left/run-right animation while carried; position is remembered.
 - **Hover** for a happy bounce.
-- **Left-click** opens Claude Desktop.
-- **Right-click** for the gallery: pick a pet, toggle the text label, quit.
+- **Left-click** runs your configured click action (Claude Desktop by default).
+- **Right-click** for the gallery, settings, diagnostics, session state, hook repair, and quit.
 - Everything persists across launches.
+
+Settings include pet size, text label, attention bubbles, click action, hook port, hook install, and launch-at-login when running as the `.app` bundle. Attention bubbles stay quiet during normal idle/working states and only call out blocked, failed, or completed turns.
+
+Use **Check for Updates…** to ask GitHub for the latest release. When running from `AICompanion.app`, the app can download, replace itself, and relaunch. Source/bare-binary runs only offer a download.
 
 ## Codex pets
 
 Pets hatched in OpenAI Codex (`/hatch`) work without copying or converting: the app reads `~/.codex/pets/<id>/` **in place** (read-only — they keep working in Codex) and also scans `~/.claude/pets/` for pets in the same format. Use **Pet → Reload Pets** after hatching a new one.
 
 The default pet, **Wapuu**, ships inside the app in this same format (`Sources/Pets/Resources/wapuu/`); a same-id pet in your user dirs is ignored.
+
+Use **Pet → Install Pet…** to import a Codex-format pet folder or `.zip` into `~/.claude/pets/`. The app validates `pet.json`, spritesheet dimensions, and animation frame references before copying.
 
 The format (from open-source `codex-rs/tui/src/pets/`): a folder with `pet.json` + `spritesheet.webp`, an 8×9 grid of 192×208 px cells (1536×1872 total), row-major:
 
@@ -62,6 +68,12 @@ The format (from open-source `codex-rs/tui/src/pets/`): a folder with `pet.json`
 
 Custom `frame` / `animations` overrides in `pet.json` are honored. Frames are copied into small downscaled bitmaps at load so the full decoded sheets are released immediately.
 
+Validate a pet from the command line:
+
+```sh
+make validate-pet PET=/path/to/pet-or.zip
+```
+
 ## Controlling from Claude
 
 `scripts/petctl.sh start|stop|restart|status` manages the app detached from any session (also `make start|stop|restart|status`). `status` includes live state JSON from `http://localhost:7387/state` — which sessions are tracked and what the pet is showing.
@@ -74,6 +86,8 @@ Custom `frame` / `animations` overrides in `pet.json` are honored. Frames are co
 curl localhost:7387/state   # display state + tracked sessions
 tail -f /tmp/pets.log       # every hook event as it arrives
 ```
+
+The right-click menu also shows whether hooks are installed for the active port, when the last event arrived, and which sessions are currently tracked. Session labels use explicit hook title fields, prompt text, the first real user message in the transcript, or a meaningful working folder name, with internal command wrappers and generated slugs ignored.
 
 Synthetic events work too:
 

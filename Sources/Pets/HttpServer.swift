@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-let serverPort: UInt16 = ProcessInfo.processInfo.environment["PETS_PORT"].flatMap { UInt16($0) } ?? 7387
+let serverPort: UInt16 = AppSettings.listenerPort
 
 final class HttpServer {
     private let listener: NWListener

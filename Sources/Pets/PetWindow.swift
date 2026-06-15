@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 final class PetPanel: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -73,11 +74,15 @@ final class PetView: NSView {
 final class PetController: NSObject, NSMenuDelegate {
     private let panel = PetPanel()
     private let petView = PetView()
+    private let bubbleLabel = NSTextField(labelWithString: "")
     private let petLabel = NSTextField(labelWithString: "")
     private let petImageView = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
+    private var imageHeightConstraint: NSLayoutConstraint?
+    private var imageWidthConstraint: NSLayoutConstraint?
     private var timer: Timer?
     private var frameIndex = 0
+    private var spriteReloadTimer: Timer?
     private var sessionDisplay: DisplayState = .asleep
     private var shownState: DisplayState = .asleep
     private var hovering = false
@@ -85,15 +90,21 @@ final class PetController: NSObject, NSMenuDelegate {
     private var codexRefs: [CodexPetRef]
     private var iconCache: [String: NSImage] = [:]
     private var pet: Pet
-    private var showStatus: Bool
+    private var displayHeight: CGFloat
+    private var preferencesWindow: PreferencesWindowController?
+    var sessionProvider: (() -> [SessionSummary])?
+    var lastEventProvider: (() -> EventSummary?)?
+    var detailProvider: (() -> String?)?
 
     override init() {
-        codexRefs = scanCodexPets()
-        let savedID = UserDefaults.standard.string(forKey: "petID") ?? "codex:wapuu"
+        let refs = scanCodexPets()
+        let height = AppSettings.petSize
+        codexRefs = refs
+        displayHeight = height
+        let savedID = AppSettings.petID
         pet = builtinPets.first { $0.id == savedID }
-            ?? codexRefs.first { $0.id == savedID }.flatMap(loadCodexPet)
+            ?? refs.first { $0.id == savedID }.flatMap { loadCodexPet($0, displayHeight: height) }
             ?? builtinPets[0]
-        showStatus = UserDefaults.standard.object(forKey: "showStatus") as? Bool ?? true
         super.init()
         let names = builtinPets.map(\.id) + codexRefs.map(\.id)
         print("pets available: \(names.joined(separator: ", ")) — active: \(pet.id)")
@@ -102,14 +113,26 @@ final class PetController: NSObject, NSMenuDelegate {
     }
 
     private func setupUI() {
-        petLabel.font = .systemFont(ofSize: 84)
+        bubbleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        bubbleLabel.textColor = .labelColor
+        bubbleLabel.alignment = .center
+        bubbleLabel.lineBreakMode = .byTruncatingTail
+        bubbleLabel.maximumNumberOfLines = 1
+        bubbleLabel.isHidden = true
+        bubbleLabel.wantsLayer = true
+        bubbleLabel.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor
+        bubbleLabel.layer?.cornerRadius = 8
+        bubbleLabel.layer?.borderWidth = 1
+        bubbleLabel.layer?.borderColor = NSColor.separatorColor.cgColor
+
+        petLabel.font = .systemFont(ofSize: displayHeight * 0.62)
         petLabel.alignment = .center
         petImageView.imageScaling = .scaleProportionallyUpOrDown
         statusLabel.font = .systemFont(ofSize: 13, weight: .medium)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.alignment = .center
 
-        let stack = NSStackView(views: [petLabel, petImageView, statusLabel])
+        let stack = NSStackView(views: [bubbleLabel, petLabel, petImageView, statusLabel])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 2
@@ -117,17 +140,21 @@ final class PetController: NSObject, NSMenuDelegate {
 
         panel.contentView = petView
         petView.addSubview(stack)
+        imageHeightConstraint = petImageView.heightAnchor.constraint(equalToConstant: displayHeight)
+        imageWidthConstraint = petImageView.widthAnchor.constraint(equalToConstant: displayHeight)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: petView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: petView.centerYAnchor),
-            petImageView.heightAnchor.constraint(equalToConstant: petDisplayHeight),
-            petImageView.widthAnchor.constraint(equalToConstant: petDisplayHeight),
+            bubbleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 240),
+            bubbleLabel.heightAnchor.constraint(equalToConstant: 26),
+            imageHeightConstraint!,
+            imageWidthConstraint!,
         ])
 
         let menu = NSMenu()
         menu.delegate = self
         petView.menu = menu
-        petView.onClick = { [weak self] in self?.openClaude() }
+        petView.onClick = { [weak self] in self?.handleClick() }
         petView.onHover = { [weak self] inside in
             self?.hovering = inside
             self?.refresh()
@@ -147,12 +174,66 @@ final class PetController: NSObject, NSMenuDelegate {
             panel.setFrameOrigin(NSPoint(x: v.maxX - 320, y: v.minY + 24))
         }
         panel.setFrameAutosaveName("PetWindow")
+        resizePanel()
+        clampPanelToVisibleScreen()
         panel.orderFrontRegardless()
     }
 
     func apply(state: DisplayState) {
         sessionDisplay = state
         refresh()
+    }
+
+    func settingsChanged() {
+        let oldSize = displayHeight
+        displayHeight = AppSettings.petSize
+        petLabel.font = .systemFont(ofSize: displayHeight * 0.62)
+        imageHeightConstraint?.constant = displayHeight
+        imageWidthConstraint?.constant = displayHeight
+        resizePanel()
+        if oldSize != displayHeight, pet.isSprite {
+            scheduleSpriteReload()
+        }
+        refresh()
+    }
+
+    private func scheduleSpriteReload() {
+        spriteReloadTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.reloadSelectedPet()
+            self.refresh()
+        }
+        timer.tolerance = 0.05
+        spriteReloadTimer = timer
+    }
+
+    private func resizePanel() {
+        let width = max(300, displayHeight + 150)
+        let height = max(190, displayHeight + 96)
+        var frame = panel.frame
+        frame.size = NSSize(width: width, height: height)
+        panel.setFrame(frame, display: false)
+        clampPanelToVisibleScreen()
+    }
+
+    private func clampPanelToVisibleScreen() {
+        guard let screen = bestScreen(for: panel.frame) ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+        var frame = panel.frame
+        frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
+        frame.origin.y = min(max(frame.origin.y, visible.minY), visible.maxY - frame.height)
+        panel.setFrame(frame, display: false)
+    }
+
+    private func bestScreen(for frame: NSRect) -> NSScreen? {
+        NSScreen.screens.max { a, b in
+            area(a.visibleFrame.intersection(frame)) < area(b.visibleFrame.intersection(frame))
+        }
+    }
+
+    private func area(_ rect: NSRect) -> CGFloat {
+        rect.isNull ? 0 : rect.width * rect.height
     }
 
     private func refresh() {
@@ -187,7 +268,11 @@ final class PetController: NSObject, NSMenuDelegate {
             petImageView.isHidden = false
             petLabel.isHidden = true
         }
-        let text = showStatus ? statusText : ""
+        let bubble = AppSettings.showBubbles ? bubbleText : ""
+        bubbleLabel.stringValue = bubble
+        bubbleLabel.isHidden = bubble.isEmpty
+
+        let text = AppSettings.showStatus ? statusText : ""
         statusLabel.stringValue = text
         statusLabel.isHidden = text.isEmpty
     }
@@ -204,10 +289,28 @@ final class PetController: NSObject, NSMenuDelegate {
         }
     }
 
+    private var bubbleText: String {
+        switch sessionDisplay {
+        case .waiting, .celebrating, .failed:
+            return detailProvider?() ?? statusText
+        default:
+            return ""
+        }
+    }
+
     private func openClaude() {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop")
         else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    private func handleClick() {
+        switch AppSettings.clickAction {
+        case .openClaude:
+            openClaude()
+        case .none:
+            break
+        }
     }
 
     // MARK: - Context menu
@@ -246,6 +349,10 @@ final class PetController: NSObject, NSMenuDelegate {
             }
         }
         petMenu.addItem(.separator())
+        let install = NSMenuItem(title: "Install Pet…", action: #selector(installPet), keyEquivalent: "")
+        install.target = self
+        petMenu.addItem(install)
+
         let reload = NSMenuItem(title: "Reload Pets", action: #selector(reloadPets), keyEquivalent: "")
         reload.target = self
         petMenu.addItem(reload)
@@ -256,41 +363,199 @@ final class PetController: NSObject, NSMenuDelegate {
 
         let statusItem = NSMenuItem(title: "Show Text", action: #selector(toggleStatus), keyEquivalent: "")
         statusItem.target = self
-        statusItem.state = showStatus ? .on : .off
+        statusItem.state = AppSettings.showStatus ? .on : .off
         menu.addItem(statusItem)
 
+        let bubblesItem = NSMenuItem(title: "Show Bubbles", action: #selector(toggleBubbles), keyEquivalent: "")
+        bubblesItem.target = self
+        bubblesItem.state = AppSettings.showBubbles ? .on : .off
+        menu.addItem(bubblesItem)
+
+        let prefs = NSMenuItem(title: "Settings…", action: #selector(showPreferences), keyEquivalent: "")
+        prefs.target = self
+        menu.addItem(prefs)
+
         menu.addItem(.separator())
+
+        let sessionsItem = NSMenuItem(title: "Sessions", action: nil, keyEquivalent: "")
+        let sessionsMenu = NSMenu()
+        let sessions = sessionProvider?() ?? []
+        if sessions.isEmpty {
+            let empty = NSMenuItem(title: "No active sessions", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            sessionsMenu.addItem(empty)
+        } else {
+            for session in sessions {
+                let item = NSMenuItem(title: sessionTitle(session), action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                sessionsMenu.addItem(item)
+            }
+        }
+        menu.addItem(sessionsItem)
+        menu.setSubmenu(sessionsMenu, for: sessionsItem)
+
+        if let event = lastEventProvider?() {
+            let title = "Last Event: \(event.name) · \(relative(event.date))"
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            if let detail = event.detail {
+                let detailItem = NSMenuItem(title: "Detail: \(detail)", action: nil, keyEquivalent: "")
+                detailItem.isEnabled = false
+                menu.addItem(detailItem)
+            }
+        } else {
+            let item = NSMenuItem(title: "Last Event: none", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
+
         let info = NSMenuItem(title: "Listening on 127.0.0.1:\(serverPort)", action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
 
-        let quit = NSMenuItem(title: "Quit Pets", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        let hooks = NSMenuItem(title: hooksInstalled() ? "Hooks: installed" : "Hooks: missing", action: nil, keyEquivalent: "")
+        hooks.isEnabled = false
+        menu.addItem(hooks)
+
+        let installHooks = NSMenuItem(title: "Install/Repair Hooks", action: #selector(installHooks), keyEquivalent: "")
+        installHooks.target = self
+        menu.addItem(installHooks)
+
+        menu.addItem(.separator())
+
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
+
+        let quit = NSMenuItem(title: "Quit AI Companion", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
         menu.addItem(quit)
     }
 
     @objc private func selectPet(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
-        let selected = builtinPets.first { $0.id == id }
-            ?? codexRefs.first { $0.id == id }.flatMap(loadCodexPet)
+        let selected = loadPet(id: id)
         guard let selected else { return }
         pet = selected
-        UserDefaults.standard.set(id, forKey: "petID")
+        AppSettings.petID = id
         refresh()
     }
 
     @objc private func reloadPets() {
         codexRefs = scanCodexPets()
         iconCache.removeAll()
-        if pet.isSprite {
-            pet = codexRefs.first { $0.id == pet.id }.flatMap(loadCodexPet) ?? builtinPets[0]
-        }
+        reloadSelectedPet()
         refresh()
     }
 
     @objc private func toggleStatus() {
-        showStatus.toggle()
-        UserDefaults.standard.set(showStatus, forKey: "showStatus")
+        AppSettings.showStatus.toggle()
         render()
+    }
+
+    @objc private func toggleBubbles() {
+        AppSettings.showBubbles.toggle()
+        render()
+    }
+
+    @objc private func showPreferences() {
+        if preferencesWindow == nil {
+            let window = PreferencesWindowController()
+            window.onSettingsChanged = { [weak self] in self?.settingsChanged() }
+            preferencesWindow = window
+        }
+        preferencesWindow?.show()
+    }
+
+    @objc private func installHooks() {
+        let result = runHooksInstaller()
+        showAlert(result.ok ? "Hooks installed" : "Hook install failed",
+                  result.output.nilIfEmpty ?? "No output.")
+    }
+
+    @objc private func checkForUpdates() {
+        UpdateChecker.shared.check()
+    }
+
+    @objc private func installPet() {
+        let panel = NSOpenPanel()
+        panel.title = "Install Pet"
+        panel.prompt = "Install"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.zip]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let ref = try installCodexPet(from: url)
+            useInstalledPet(ref)
+            showAlert("Pet installed", "\(ref.name) is ready.")
+        } catch PetInstallError.duplicate(let id) {
+            let alert = NSAlert()
+            alert.messageText = "Replace existing pet?"
+            alert.informativeText = "A pet named \(id) already exists in ~/.claude/pets."
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            do {
+                let ref = try installCodexPet(from: url, replaceExisting: true)
+                useInstalledPet(ref)
+                showAlert("Pet replaced", "\(ref.name) is ready.")
+            } catch {
+                showAlert("Pet install failed", error.localizedDescription)
+            }
+        } catch {
+            showAlert("Pet install failed", error.localizedDescription)
+        }
+    }
+
+    private func loadPet(id: String) -> Pet? {
+        builtinPets.first { $0.id == id }
+            ?? codexRefs.first { $0.id == id }.flatMap { loadCodexPet($0, displayHeight: displayHeight) }
+    }
+
+    private func reloadSelectedPet() {
+        pet = loadPet(id: pet.id) ?? builtinPets[0]
+    }
+
+    private func useInstalledPet(_ ref: CodexPetRef) {
+        codexRefs = scanCodexPets()
+        iconCache.removeAll()
+        if let selected = loadPet(id: ref.id) {
+            pet = selected
+            AppSettings.petID = ref.id
+        }
+        refresh()
+    }
+
+    private func sessionTitle(_ session: SessionSummary) -> String {
+        let name = session.title ?? shortSessionID(session.id)
+        var parts = ["\(name): \(session.state)"]
+        if session.title != nil { parts.append(shortSessionID(session.id)) }
+        if session.plan { parts.append("plan") }
+        if let tool = session.lastTool { parts.append(tool) }
+        if let note = session.note, note != session.lastTool { parts.append(note) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func shortSessionID(_ id: String) -> String {
+        id.count > 10 ? String(id.suffix(10)) : id
+    }
+
+    private func relative(_ date: Date) -> String {
+        let seconds = max(0, Int(-date.timeIntervalSinceNow))
+        if seconds < 60 { return "\(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        return "\(minutes / 60)h ago"
+    }
+
+    private func showAlert(_ title: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.runModal()
     }
 }
