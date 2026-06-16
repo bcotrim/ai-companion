@@ -20,7 +20,7 @@ app: build
 	cp scripts/install-hooks.sh $(APP)/Contents/Resources/install-hooks.sh
 	codesign $(CODESIGN_ARGS) $(APP)
 	cd dist && ditto -c -k --keepParent AICompanion.app AICompanion.zip
-	shasum -a 256 $(ZIP) > $(ZIP).sha256
+	cd dist && shasum -a 256 AICompanion.zip > AICompanion.zip.sha256
 	@echo "built $(ZIP)"
 	@cat $(ZIP).sha256
 
@@ -37,7 +37,7 @@ notarized-app:
 	xcrun stapler staple $(APP)
 	xcrun stapler validate $(APP)
 	cd dist && ditto -c -k --keepParent AICompanion.app AICompanion.zip
-	shasum -a 256 $(ZIP) > $(ZIP).sha256
+	cd dist && shasum -a 256 AICompanion.zip > AICompanion.zip.sha256
 	@echo "built notarized $(ZIP)"
 	@cat $(ZIP).sha256
 
