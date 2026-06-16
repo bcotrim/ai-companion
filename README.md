@@ -16,7 +16,9 @@ Claude Code [hooks](https://code.claude.com/docs/en/hooks) support `"type": "htt
 
 ## Install
 
-**Download** (Apple Silicon): grab `AICompanion.zip` from the [latest release](https://github.com/bcotrim/ai-companion/releases/latest), unzip, move `AICompanion.app` to /Applications and open it. On first launch it offers to install the Claude Code hooks for you. The build is ad-hoc signed (not notarized), so the first open needs right-click → Open, or:
+**Download** (Apple Silicon): grab `AICompanion.zip` from the [latest release](https://github.com/bcotrim/ai-companion/releases/latest), verify the published SHA-256 checksum if you want, unzip, move `AICompanion.app` to /Applications and open it. On first launch it offers to install the Claude Code hooks for you.
+
+The downloadable build is open source and ad-hoc signed, not Apple Developer ID notarized. On first launch macOS may require right-click → Open, or:
 
 ```sh
 xattr -d com.apple.quarantine /Applications/AICompanion.app
@@ -31,6 +33,24 @@ make app            # or: build the .app bundle yourself (dist/AICompanion.zip)
 ```
 
 The hook installer backs up your settings, appends (never replaces) entries, and is idempotent; `make uninstall-hooks` reverts. Prefer manual setup? Merge `hooks/hooks-snippet.json` yourself. Running Claude Code sessions pick the hooks up on their next turn.
+
+## Release signing
+
+`make app` creates an ad-hoc signed zip and `dist/AICompanion.zip.sha256`. That keeps releases free for an open source project, but it means users may see Gatekeeper friction on first launch.
+
+Developer ID signing and notarization are optional. They require the paid Apple Developer Program. If you later want fully trusted downloads:
+
+```sh
+security find-identity -v -p codesigning
+xcrun notarytool store-credentials ai-companion \
+  --apple-id "you@example.com" \
+  --team-id "TEAMID" \
+  --password "app-specific-password"
+
+make notarized-app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=ai-companion
+```
+
+`make notarized-app` signs with hardened runtime, submits `dist/AICompanion.zip` to Apple, staples the ticket to `AICompanion.app`, validates it, and rebuilds the final zip.
 
 ## Usage
 
