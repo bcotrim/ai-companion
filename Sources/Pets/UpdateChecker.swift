@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 final class UpdateChecker {
@@ -22,11 +23,13 @@ final class UpdateChecker {
         let name: String
         let browserDownloadURL: URL
         let size: Int?
+        let digest: String?
 
         enum CodingKeys: String, CodingKey {
             case name
             case browserDownloadURL = "browser_download_url"
             case size
+            case digest
         }
     }
 
@@ -76,6 +79,8 @@ final class UpdateChecker {
             showAlert("No download found", "\(release.tagName) does not include a zip build.")
             return
         }
+        let checksumAsset = release.assets.first(where: { $0.name == "\(asset.name).sha256" })
+            ?? release.assets.first(where: { $0.name.lowercased().hasSuffix(".sha256") })
 
         let current = currentVersion
         if isNewer(release.tagName, than: current) {
@@ -90,9 +95,9 @@ final class UpdateChecker {
                 alert.addButton(withTitle: "Later")
                 switch run(alert) {
                 case .alertFirstButtonReturn:
-                    download(asset, from: release, installAfterDownload: true)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: true)
                 case .alertSecondButtonReturn:
-                    download(asset, from: release, installAfterDownload: false)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: false)
                 default:
                     break
                 }
@@ -100,7 +105,7 @@ final class UpdateChecker {
                 alert.addButton(withTitle: "Download")
                 alert.addButton(withTitle: "Later")
                 if run(alert) == .alertFirstButtonReturn {
-                    download(asset, from: release, installAfterDownload: false)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: false)
                 }
             }
         } else {
@@ -115,22 +120,22 @@ final class UpdateChecker {
                 alert.addButton(withTitle: "Download Anyway")
                 switch run(alert) {
                 case .alertSecondButtonReturn:
-                    download(asset, from: release, installAfterDownload: true)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: true)
                 case .alertThirdButtonReturn:
-                    download(asset, from: release, installAfterDownload: false)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: false)
                 default:
                     break
                 }
             } else {
                 alert.addButton(withTitle: "Download Anyway")
                 if run(alert) == .alertSecondButtonReturn {
-                    download(asset, from: release, installAfterDownload: false)
+                    download(asset, checksumAsset: checksumAsset, from: release, installAfterDownload: false)
                 }
             }
         }
     }
 
-    private func download(_ asset: Asset, from release: Release, installAfterDownload: Bool) {
+    private func download(_ asset: Asset, checksumAsset: Asset?, from release: Release, installAfterDownload: Bool) {
         guard !downloading else { return }
         downloading = true
 
@@ -161,6 +166,7 @@ final class UpdateChecker {
                     try FileManager.default.removeItem(at: destination)
                 }
                 try FileManager.default.moveItem(at: tempURL, to: destination)
+                try self.verifyChecksum(for: destination, asset: asset, checksumAsset: checksumAsset)
                 DispatchQueue.main.async {
                     self.downloading = false
                     if installAfterDownload {
@@ -176,6 +182,52 @@ final class UpdateChecker {
                 }
             }
         }.resume()
+    }
+
+    private func verifyChecksum(for file: URL, asset: Asset, checksumAsset: Asset?) throws {
+        do {
+            guard let expected = try expectedChecksum(for: asset, checksumAsset: checksumAsset) else {
+                throw updateError("The release is missing a checksum for \(asset.name).")
+            }
+            let actual = try sha256Hex(of: file)
+            guard actual == expected else {
+                throw updateError("Checksum mismatch for \(asset.name).")
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+    }
+
+    private func expectedChecksum(for asset: Asset, checksumAsset: Asset?) throws -> String? {
+        if let digest = asset.digest?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           digest.hasPrefix("sha256:") {
+            let hash = String(digest.dropFirst("sha256:".count))
+            if isSHA256(hash) { return hash }
+        }
+        guard let checksumAsset else { return nil }
+        let text = try String(contentsOf: checksumAsset.browserDownloadURL, encoding: .utf8)
+        return checksum(from: text, matching: asset.name)
+    }
+
+    private func checksum(from text: String, matching assetName: String) -> String? {
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard let hash = parts.first?.lowercased(), isSHA256(hash) else { continue }
+            if parts.count == 1 || parts.dropFirst().contains(where: { $0 == assetName || $0 == "*\(assetName)" }) {
+                return hash
+            }
+        }
+        return nil
+    }
+
+    private func sha256Hex(of file: URL) throws -> String {
+        let data = try Data(contentsOf: file)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func isSHA256(_ value: String) -> Bool {
+        value.count == 64 && value.allSatisfy { $0.isNumber || ("a"..."f").contains($0) }
     }
 
     private func install(downloadedZip: URL) {
