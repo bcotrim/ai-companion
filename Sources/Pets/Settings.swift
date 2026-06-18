@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import Foundation
 
 enum ClickAction: String, CaseIterable {
@@ -21,6 +21,9 @@ enum AppSettings {
     static let maxPetSize: CGFloat = 220
 
     private static let defaults = UserDefaults.standard
+    private static let displayPetSizesKey = "displayPetSizes"
+    private static let displayPetPositionsKey = "displayPetPositions"
+    private static let lastPetDisplayKey = "lastPetDisplay"
 
     static var listenerPort: UInt16 {
         if let env = ProcessInfo.processInfo.environment["PETS_PORT"].flatMap(UInt16.init) {
@@ -62,9 +65,97 @@ enum AppSettings {
         set { defaults.set(Double(min(max(newValue, minPetSize), maxPetSize)), forKey: "petSize") }
     }
 
+    static var lastPetDisplayID: String? {
+        get { defaults.string(forKey: lastPetDisplayKey) }
+        set { defaults.set(newValue, forKey: lastPetDisplayKey) }
+    }
+
+    static func displayID(for screen: NSScreen?) -> String? {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return String(number.uint32Value)
+    }
+
+    static func screen(matching id: String?) -> NSScreen? {
+        guard let id else { return nil }
+        return NSScreen.screens.first { displayID(for: $0) == id }
+    }
+
+    static func petSize(for screen: NSScreen?) -> CGFloat {
+        guard let id = displayID(for: screen),
+              let saved = displayPetSizes[id],
+              saved > 0
+        else { return petSize }
+        return clampedPetSize(CGFloat(saved))
+    }
+
+    static func setPetSize(_ size: CGFloat, for screen: NSScreen?) {
+        let value = clampedPetSize(size)
+        petSize = value
+        guard let id = displayID(for: screen) else { return }
+        var sizes = displayPetSizes
+        sizes[id] = Double(value)
+        displayPetSizes = sizes
+    }
+
+    static func petPosition(for screen: NSScreen?) -> CGPoint? {
+        guard let id = displayID(for: screen),
+              let item = displayPetPositions[id],
+              let x = item["x"], let y = item["y"]
+        else { return nil }
+        return CGPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+    }
+
+    static func setPetPosition(_ position: CGPoint, for screen: NSScreen?) {
+        guard let id = displayID(for: screen) else { return }
+        var positions = displayPetPositions
+        positions[id] = [
+            "x": Double(min(max(position.x, 0), 1)),
+            "y": Double(min(max(position.y, 0), 1)),
+        ]
+        displayPetPositions = positions
+        lastPetDisplayID = id
+    }
+
     static var clickAction: ClickAction {
         get { ClickAction(rawValue: defaults.string(forKey: "clickAction") ?? "") ?? .openClaude }
         set { defaults.set(newValue.rawValue, forKey: "clickAction") }
+    }
+
+    private static var displayPetSizes: [String: Double] {
+        get {
+            let raw = defaults.dictionary(forKey: displayPetSizesKey) ?? [:]
+            return raw.reduce(into: [:]) { result, item in
+                if let value = item.value as? NSNumber {
+                    result[item.key] = value.doubleValue
+                }
+            }
+        }
+        set { defaults.set(newValue, forKey: displayPetSizesKey) }
+    }
+
+    private static var displayPetPositions: [String: [String: Double]] {
+        get {
+            let raw = defaults.dictionary(forKey: displayPetPositionsKey) ?? [:]
+            return raw.reduce(into: [:]) { result, item in
+                guard let values = item.value as? [String: Any] else { return }
+                var parsed: [String: Double] = [:]
+                for (key, value) in values {
+                    if let number = value as? NSNumber {
+                        parsed[key] = number.doubleValue
+                    }
+                }
+                if parsed["x"] != nil, parsed["y"] != nil {
+                    result[item.key] = parsed
+                }
+            }
+        }
+        set { defaults.set(newValue, forKey: displayPetPositionsKey) }
+    }
+
+    private static func clampedPetSize(_ value: CGFloat) -> CGFloat {
+        min(max(value, minPetSize), maxPetSize)
     }
 }
 

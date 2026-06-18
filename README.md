@@ -60,7 +60,7 @@ make notarized-app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" 
 - **Right-click** for the gallery, settings, diagnostics, session state, hook repair, and quit.
 - Everything persists across launches.
 
-Settings include pet size, text label, attention bubbles, click action, hook port, hook install, and launch-at-login when running as the `.app` bundle. Attention bubbles stay quiet during normal idle/working states and only call out blocked, failed, or completed turns.
+Settings include per-display pet size, text label, attention bubbles, click action, hook port, hook install, and launch-at-login when running as the `.app` bundle. The pet remembers its position separately for each display. Attention bubbles stay quiet during normal idle/working states and only call out blocked, failed, or completed turns.
 
 Use **Check for Updates…** to ask GitHub for the latest release. When running from `AICompanion.app`, the app verifies the release checksum, replaces itself, and relaunches. Source/bare-binary runs only offer a verified download.
 

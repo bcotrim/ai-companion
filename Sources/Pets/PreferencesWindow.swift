@@ -3,6 +3,8 @@ import ServiceManagement
 
 final class PreferencesWindowController: NSWindowController {
     var onSettingsChanged: (() -> Void)?
+    var currentPetSize: (() -> CGFloat)?
+    var onPetSizeChanged: ((CGFloat) -> Void)?
 
     private let sizeSlider = NSSlider(value: Double(AppSettings.petSize),
                                       minValue: Double(AppSettings.minPetSize),
@@ -104,9 +106,10 @@ final class PreferencesWindowController: NSWindowController {
         ])
     }
 
-    private func refresh() {
-        sizeSlider.doubleValue = Double(AppSettings.petSize)
-        sizeLabel.stringValue = "\(Int(AppSettings.petSize)) px"
+    func refresh() {
+        let petSize = currentPetSize?() ?? AppSettings.petSize
+        sizeSlider.doubleValue = Double(petSize)
+        sizeLabel.stringValue = "\(Int(petSize)) px"
         showText.state = AppSettings.showStatus ? .on : .off
         showBubbles.state = AppSettings.showBubbles ? .on : .off
         clickAction.selectItem(withTitle: AppSettings.clickAction.title)
@@ -135,9 +138,13 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     @objc private func sizeChanged() {
-        AppSettings.petSize = CGFloat(sizeSlider.doubleValue)
-        sizeLabel.stringValue = "\(Int(AppSettings.petSize)) px"
-        onSettingsChanged?()
+        let size = CGFloat(sizeSlider.doubleValue)
+        if let onPetSizeChanged {
+            onPetSizeChanged(size)
+        } else {
+            AppSettings.petSize = size
+        }
+        sizeLabel.stringValue = "\(Int(currentPetSize?() ?? AppSettings.petSize)) px"
     }
 
     @objc private func toggleShowText() {

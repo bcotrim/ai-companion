@@ -5,6 +5,10 @@ final class PetPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 300, height: 190),
                    styleMask: [.borderless, .nonactivatingPanel],
@@ -24,6 +28,7 @@ final class PetView: NSView {
     var onHover: ((Bool) -> Void)?
     var onDrag: ((Int) -> Void)?      // -1 = moving left, 1 = moving right
     var onDragEnd: (() -> Void)?
+    var constrainOrigin: ((NSPoint) -> NSPoint)?
     private var dragged = false
     private var downMouse = NSPoint.zero
     private var downOrigin = NSPoint.zero
@@ -58,8 +63,9 @@ final class PetView: NSView {
         let now = NSEvent.mouseLocation
         if !dragged, hypot(now.x - downMouse.x, now.y - downMouse.y) <= 3 { return }
         dragged = true
-        window?.setFrameOrigin(NSPoint(x: downOrigin.x + now.x - downMouse.x,
-                                       y: downOrigin.y + now.y - downMouse.y))
+        let desired = NSPoint(x: downOrigin.x + now.x - downMouse.x,
+                              y: downOrigin.y + now.y - downMouse.y)
+        window?.setFrameOrigin(constrainOrigin?(desired) ?? desired)
         if abs(now.x - lastX) > 1 {
             onDrag?(now.x > lastX ? 1 : -1)
             lastX = now.x
@@ -91,6 +97,7 @@ final class PetController: NSObject, NSMenuDelegate {
     private var iconCache: [String: NSImage] = [:]
     private var pet: Pet
     private var displayHeight: CGFloat
+    private var activeDisplayID: String?
     private var preferencesWindow: PreferencesWindowController?
     var sessionProvider: (() -> [SessionSummary])?
     var lastEventProvider: (() -> EventSummary?)?
@@ -98,7 +105,8 @@ final class PetController: NSObject, NSMenuDelegate {
 
     override init() {
         let refs = scanCodexPets()
-        let height = AppSettings.petSize
+        let screen = AppSettings.screen(matching: AppSettings.lastPetDisplayID) ?? NSScreen.main
+        let height = AppSettings.petSize(for: screen)
         codexRefs = refs
         displayHeight = height
         let savedID = AppSettings.petID
@@ -106,6 +114,7 @@ final class PetController: NSObject, NSMenuDelegate {
             ?? refs.first { $0.id == savedID }.flatMap { loadCodexPet($0, displayHeight: height) }
             ?? builtinPets[0]
         super.init()
+        activeDisplayID = AppSettings.displayID(for: screen)
         let names = builtinPets.map(\.id) + codexRefs.map(\.id)
         print("pets available: \(names.joined(separator: ", ")) — active: \(pet.id)")
         setupUI()
@@ -155,6 +164,7 @@ final class PetController: NSObject, NSMenuDelegate {
         menu.delegate = self
         petView.menu = menu
         petView.onClick = { [weak self] in self?.handleClick() }
+        petView.constrainOrigin = { [weak self] in self?.constrainedPanelOrigin($0) ?? $0 }
         petView.onHover = { [weak self] inside in
             self?.hovering = inside
             self?.refresh()
@@ -165,16 +175,11 @@ final class PetController: NSObject, NSMenuDelegate {
             self.refresh()
         }
         petView.onDragEnd = { [weak self] in
-            self?.dragDirection = 0
-            self?.refresh()
+            self?.finishDrag()
         }
 
-        if !panel.setFrameUsingName("PetWindow"), let screen = NSScreen.main {
-            let v = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: v.maxX - 320, y: v.minY + 24))
-        }
-        panel.setFrameAutosaveName("PetWindow")
         resizePanel()
+        restorePanelPosition(on: AppSettings.screen(matching: activeDisplayID) ?? NSScreen.main)
         clampPanelToVisibleScreen()
         panel.orderFrontRegardless()
     }
@@ -185,16 +190,53 @@ final class PetController: NSObject, NSMenuDelegate {
     }
 
     func settingsChanged() {
+        refresh()
+    }
+
+    private func setPetSizeForCurrentDisplay(_ size: CGFloat) {
+        let screen = currentPetScreen() ?? AppSettings.screen(matching: activeDisplayID) ?? NSScreen.main
+        activeDisplayID = AppSettings.displayID(for: screen)
+        AppSettings.setPetSize(size, for: screen)
+        applyPetSize(AppSettings.petSize(for: screen), savePosition: true)
+        preferencesWindow?.refresh()
+    }
+
+    private func applyPetSize(_ size: CGFloat, savePosition: Bool) {
         let oldSize = displayHeight
-        displayHeight = AppSettings.petSize
+        let anchor = visibleContentCenterInScreen()
+        displayHeight = size
         petLabel.font = .systemFont(ofSize: displayHeight * 0.62)
         imageHeightConstraint?.constant = displayHeight
         imageWidthConstraint?.constant = displayHeight
-        resizePanel()
+        resizePanel(clamp: false)
+        moveVisibleContentCenter(to: anchor)
+        clampPanelToVisibleScreen()
+        if savePosition {
+            saveCurrentPosition()
+        }
         if oldSize != displayHeight, pet.isSprite {
             scheduleSpriteReload()
         }
         refresh()
+    }
+
+    private func finishDrag() {
+        dragDirection = 0
+        syncDisplayAfterMove()
+        saveCurrentPosition()
+        refresh()
+    }
+
+    private func syncDisplayAfterMove() {
+        guard let screen = currentPetScreen() else { return }
+        let displayID = AppSettings.displayID(for: screen)
+        guard displayID != activeDisplayID else { return }
+        activeDisplayID = displayID
+        let size = AppSettings.petSize(for: screen)
+        if abs(size - displayHeight) > 0.5 {
+            applyPetSize(size, savePosition: false)
+        }
+        preferencesWindow?.refresh()
     }
 
     private func scheduleSpriteReload() {
@@ -208,22 +250,108 @@ final class PetController: NSObject, NSMenuDelegate {
         spriteReloadTimer = timer
     }
 
-    private func resizePanel() {
+    private func resizePanel(clamp: Bool = true) {
         let width = max(300, displayHeight + 150)
         let height = max(190, displayHeight + 96)
         var frame = panel.frame
         frame.size = NSSize(width: width, height: height)
         panel.setFrame(frame, display: false)
-        clampPanelToVisibleScreen()
+        if clamp {
+            clampPanelToVisibleScreen()
+        }
     }
 
     private func clampPanelToVisibleScreen() {
-        guard let screen = bestScreen(for: panel.frame) ?? NSScreen.main else { return }
-        let visible = screen.visibleFrame.insetBy(dx: 16, dy: 16)
         var frame = panel.frame
-        frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
-        frame.origin.y = min(max(frame.origin.y, visible.minY), visible.maxY - frame.height)
+        frame.origin = constrainedPanelOrigin(frame.origin)
         panel.setFrame(frame, display: false)
+    }
+
+    private func constrainedPanelOrigin(_ origin: NSPoint, on preferredScreen: NSScreen? = nil) -> NSPoint {
+        let content = visibleContentRectInWindow()
+        let contentAtOrigin = content.offsetBy(dx: origin.x, dy: origin.y)
+        guard let screen = preferredScreen ?? bestScreen(for: contentAtOrigin) ?? NSScreen.main else { return origin }
+        let visible = safeVisibleFrame(for: screen)
+        return NSPoint(
+            x: clamp(origin.x, min: visible.minX - content.minX, max: visible.maxX - content.maxX),
+            y: clamp(origin.y, min: visible.minY - content.minY, max: visible.maxY - content.maxY)
+        )
+    }
+
+    private func restorePanelPosition(on screen: NSScreen?) {
+        guard let screen else { return }
+        let origin = savedPanelOrigin(on: screen) ?? defaultPanelOrigin(on: screen)
+        panel.setFrameOrigin(constrainedPanelOrigin(origin, on: screen))
+        activeDisplayID = AppSettings.displayID(for: screen)
+    }
+
+    private func savedPanelOrigin(on screen: NSScreen) -> NSPoint? {
+        guard let position = AppSettings.petPosition(for: screen) else { return nil }
+        let content = visibleContentRectInWindow()
+        let visible = safeVisibleFrame(for: screen)
+        let xRange = max(0, visible.width - content.width)
+        let yRange = max(0, visible.height - content.height)
+        return NSPoint(x: visible.minX + xRange * position.x - content.minX,
+                       y: visible.minY + yRange * position.y - content.minY)
+    }
+
+    private func defaultPanelOrigin(on screen: NSScreen) -> NSPoint {
+        let content = visibleContentRectInWindow()
+        let visible = safeVisibleFrame(for: screen)
+        return NSPoint(x: visible.maxX - content.maxX,
+                       y: visible.minY + 16 - content.minY)
+    }
+
+    private func saveCurrentPosition() {
+        guard let screen = currentPetScreen() else { return }
+        let content = visibleContentRectInWindow()
+        let contentOnScreen = content.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY)
+        let visible = safeVisibleFrame(for: screen)
+        let xRange = max(1, visible.width - content.width)
+        let yRange = max(1, visible.height - content.height)
+        let position = CGPoint(
+            x: clamp((contentOnScreen.minX - visible.minX) / xRange, min: 0, max: 1),
+            y: clamp((contentOnScreen.minY - visible.minY) / yRange, min: 0, max: 1)
+        )
+        AppSettings.setPetPosition(position, for: screen)
+        activeDisplayID = AppSettings.displayID(for: screen)
+    }
+
+    private func currentPetScreen() -> NSScreen? {
+        let content = visibleContentRectInWindow()
+        return bestScreen(for: content.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY))
+    }
+
+    private func visibleContentCenterInScreen() -> NSPoint {
+        let content = visibleContentRectInWindow()
+        return NSPoint(x: panel.frame.minX + content.midX,
+                       y: panel.frame.minY + content.midY)
+    }
+
+    private func moveVisibleContentCenter(to point: NSPoint) {
+        let content = visibleContentRectInWindow()
+        panel.setFrameOrigin(NSPoint(x: point.x - content.midX,
+                                     y: point.y - content.midY))
+    }
+
+    private func safeVisibleFrame(for screen: NSScreen) -> NSRect {
+        screen.visibleFrame.insetBy(dx: 8, dy: 8)
+    }
+
+    private func visibleContentRectInWindow() -> NSRect {
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let views = [bubbleLabel, petLabel, petImageView, statusLabel].filter { !$0.isHidden }
+        let rects = views.map { $0.convert($0.bounds, to: nil) }.filter { !$0.isEmpty }
+        guard var rect = rects.first else { return NSRect(origin: .zero, size: panel.frame.size) }
+        for next in rects.dropFirst() {
+            rect = rect.union(next)
+        }
+        return rect
+    }
+
+    private func clamp(_ value: CGFloat, min lower: CGFloat, max upper: CGFloat) -> CGFloat {
+        guard lower <= upper else { return (lower + upper) / 2 }
+        return Swift.min(Swift.max(value, lower), upper)
     }
 
     private func bestScreen(for frame: NSRect) -> NSScreen? {
@@ -463,6 +591,8 @@ final class PetController: NSObject, NSMenuDelegate {
         if preferencesWindow == nil {
             let window = PreferencesWindowController()
             window.onSettingsChanged = { [weak self] in self?.settingsChanged() }
+            window.currentPetSize = { [weak self] in self?.displayHeight ?? AppSettings.petSize }
+            window.onPetSizeChanged = { [weak self] in self?.setPetSizeForCurrentDisplay($0) }
             preferencesWindow = window
         }
         preferencesWindow?.show()
