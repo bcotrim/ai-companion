@@ -2,15 +2,25 @@ import AppKit
 
 setbuf(stdout, nil)
 
+if CommandLine.arguments.contains("--self-test") {
+    exit(SelfTest.run())
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 let controller = PetController()
 let model = StateModel()
+let snapshot = {
+    DiagnosticSnapshot(sessions: model.sessionSummaries,
+                       lastEvent: model.lastEvent,
+                       recentEvents: model.recentEvents)
+}
 model.onChange = { controller.apply(state: $0) }
 controller.sessionProvider = { model.sessionSummaries }
 controller.lastEventProvider = { model.lastEvent }
 controller.detailProvider = { model.displayDetail }
+controller.snapshotProvider = snapshot
 
 let decoder = JSONDecoder()
 let server = try HttpServer(port: serverPort) { body in
@@ -28,6 +38,8 @@ let server = try HttpServer(port: serverPort) { body in
 server.stateProvider = { model.debugJSON }
 server.start()
 
-maybeOfferHooksInstall()
+let onboardingWindow = maybeShowOnboarding(snapshotProvider: snapshot) {
+    controller.settingsChanged()
+}
 
 app.run()

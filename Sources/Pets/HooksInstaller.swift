@@ -3,7 +3,10 @@ import AppKit
 private let requiredHookEvents = [
     "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
     "PostToolUseFailure", "PermissionRequest", "PermissionDenied",
-    "Notification", "Stop", "SessionEnd",
+    "PostToolBatch", "Notification", "SubagentStart", "SubagentStop",
+    "TaskCreated", "TaskCompleted", "Stop", "StopFailure",
+    "PreCompact", "PostCompact", "Elicitation", "ElicitationResult",
+    "SessionEnd",
 ]
 private let matcherRequiredEvents = Set([
     "PreToolUse", "PostToolUse", "PostToolUseFailure",
@@ -67,36 +70,16 @@ func runHooksInstaller(port: UInt16 = serverPort, remove: Bool = false) -> (ok: 
     return (process.terminationStatus == 0, output)
 }
 
-// First-run nicety for the .app distribution: offer to install the Claude Code
-// hooks if they're missing. Runs the bundled install-hooks.sh (only present in
-// the app bundle; from-source users have `make install-hooks`).
-func maybeOfferHooksInstall() {
-    if hooksInstalled() {
-        return
+func maybeShowOnboarding(snapshotProvider: @escaping () -> DiagnosticSnapshot,
+                         onInstalledHooks: @escaping () -> Void) -> OnboardingWindowController? {
+    guard !hooksInstalled(), !AppSettings.onboardingDismissed, hooksInstallerScript() != nil else {
+        return nil
     }
-    guard hooksInstallerScript() != nil else { return }
-
-    let alert = NSAlert()
-    alert.messageText = "Install Claude Code hooks?"
-    alert.informativeText = """
-    The pet sees Claude Code activity through local hooks. \
-    Your existing hook settings are backed up first and never replaced.
-    """
-    alert.addButton(withTitle: "Install Hooks")
-    alert.addButton(withTitle: "Later")
-    guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-    let result = runHooksInstaller()
-
-    let done = NSAlert()
-    if result.ok {
-        done.messageText = "Hooks installed"
-        done.informativeText = "Claude Code sessions will reach the pet from their next turn."
-    } else {
-        done.messageText = "Hook install failed"
-        done.informativeText = result.output.nilIfEmpty ?? "Run install-hooks.sh from the repo to see the error."
-    }
-    done.runModal()
+    let window = OnboardingWindowController()
+    window.snapshotProvider = snapshotProvider
+    window.onInstalledHooks = onInstalledHooks
+    window.show()
+    return window
 }
 
 private func hooksInstallerScript() -> String? {

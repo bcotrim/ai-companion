@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    name: macOS build and test
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build release binary
+        run: make build
+
+      - name: Run automated tests
+        run: make test
+
+      - name: Build app bundle
+        run: make app
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AICompanion
+          path: |
+            dist/AICompanion.zip
+            dist/AICompanion.zip.sha256

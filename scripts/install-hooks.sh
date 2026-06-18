@@ -14,7 +14,10 @@ import json, os, sys, time
 path, url, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "PermissionRequest", "PermissionDenied",
-          "Notification", "Stop", "SessionEnd"]
+          "PostToolBatch", "Notification", "SubagentStart", "SubagentStop",
+          "TaskCreated", "TaskCompleted", "Stop", "StopFailure",
+          "PreCompact", "PostCompact", "Elicitation", "ElicitationResult",
+          "SessionEnd"]
 
 settings = {}
 if os.path.exists(path):

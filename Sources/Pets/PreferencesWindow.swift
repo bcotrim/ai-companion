@@ -13,6 +13,7 @@ final class PreferencesWindowController: NSWindowController {
     private let sizeLabel = NSTextField(labelWithString: "")
     private let showText = NSButton(checkboxWithTitle: "Show status text", target: nil, action: nil)
     private let showBubbles = NSButton(checkboxWithTitle: "Show attention bubbles", target: nil, action: nil)
+    private let attentionMode = NSPopUpButton()
     private let clickAction = NSPopUpButton()
     private let portField = NSTextField(string: String(AppSettings.savedPort))
     private let portNote = NSTextField(labelWithString: "")
@@ -20,7 +21,7 @@ final class PreferencesWindowController: NSWindowController {
     private let launchAtLogin = NSButton(checkboxWithTitle: "Launch at login", target: nil, action: nil)
 
     init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 340),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 370),
                               styleMask: [.titled, .closable],
                               backing: .buffered, defer: false)
         window.title = "AI Companion Settings"
@@ -59,6 +60,10 @@ final class PreferencesWindowController: NSWindowController {
         clickAction.target = self
         clickAction.action = #selector(clickActionChanged)
 
+        attentionMode.addItems(withTitles: AttentionMode.allCases.map(\.title))
+        attentionMode.target = self
+        attentionMode.action = #selector(attentionModeChanged)
+
         portField.alignment = .right
         portField.target = self
         portField.action = #selector(savePort)
@@ -73,6 +78,7 @@ final class PreferencesWindowController: NSWindowController {
         let installHooks = NSButton(title: "Install Hooks", target: self, action: #selector(installHooks))
 
         let sizeRow = labeledRow("Size", NSStackView(views: [sizeSlider, sizeLabel]))
+        let attentionRow = labeledRow("Attention", attentionMode)
         let clickRow = labeledRow("Click", clickAction)
         let portControls = NSStackView(views: [portField, savePort])
         portControls.orientation = .horizontal
@@ -84,6 +90,7 @@ final class PreferencesWindowController: NSWindowController {
             sizeRow,
             showText,
             showBubbles,
+            attentionRow,
             clickRow,
             portRow,
             portNote,
@@ -112,6 +119,7 @@ final class PreferencesWindowController: NSWindowController {
         sizeLabel.stringValue = "\(Int(petSize)) px"
         showText.state = AppSettings.showStatus ? .on : .off
         showBubbles.state = AppSettings.showBubbles ? .on : .off
+        attentionMode.selectItem(withTitle: AppSettings.attentionMode.title)
         clickAction.selectItem(withTitle: AppSettings.clickAction.title)
         portField.stringValue = String(AppSettings.savedPort)
         portNote.stringValue = AppSettings.savedPort == serverPort
@@ -162,6 +170,14 @@ final class PreferencesWindowController: NSWindowController {
               let action = ClickAction.allCases.first(where: { $0.title == title })
         else { return }
         AppSettings.clickAction = action
+        onSettingsChanged?()
+    }
+
+    @objc private func attentionModeChanged() {
+        guard let title = attentionMode.selectedItem?.title,
+              let mode = AttentionMode.allCases.first(where: { $0.title == title })
+        else { return }
+        AppSettings.attentionMode = mode
         onSettingsChanged?()
     }
 

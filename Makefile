@@ -1,4 +1,4 @@
-.PHONY: build run start stop restart status install-hooks uninstall-hooks validate-pet clean app signed-app notarized-app
+.PHONY: build run test start stop restart status install-hooks uninstall-hooks validate-pet clean app signed-app notarized-app
 
 APP = dist/AICompanion.app
 ZIP = dist/AICompanion.zip
@@ -43,6 +43,9 @@ notarized-app:
 
 build:
 	swift build -c release
+
+test:
+	./scripts/test.sh
 
 run: build
 	.build/release/pets
