@@ -1,0 +1,11 @@
+{
+  "name": "ai-companion",
+  "description": "Claude Code hooks for the AI Companion desktop pet.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bernardo Cotrim"
+  },
+  "homepage": "https://github.com/bcotrim/ai-companion",
+  "repository": "https://github.com/bcotrim/ai-companion",
+  "license": "MIT"
+}

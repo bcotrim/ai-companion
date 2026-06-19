@@ -99,9 +99,12 @@ final class PetController: NSObject, NSMenuDelegate {
     private var displayHeight: CGFloat
     private var activeDisplayID: String?
     private var preferencesWindow: PreferencesWindowController?
+    private var dashboardWindow: DashboardWindowController?
+    private var onboardingWindow: OnboardingWindowController?
     var sessionProvider: (() -> [SessionSummary])?
     var lastEventProvider: (() -> EventSummary?)?
     var detailProvider: (() -> String?)?
+    var snapshotProvider: (() -> DiagnosticSnapshot)?
 
     override init() {
         let refs = scanCodexPets()
@@ -187,9 +190,13 @@ final class PetController: NSObject, NSMenuDelegate {
     func apply(state: DisplayState) {
         sessionDisplay = state
         refresh()
+        AttentionNotifier.shared.note(state: state, detail: detailProvider?())
     }
 
     func settingsChanged() {
+        if AppSettings.attentionMode == .loud {
+            AttentionNotifier.shared.requestAuthorizationIfNeeded()
+        }
         refresh()
     }
 
@@ -411,6 +418,9 @@ final class PetController: NSObject, NSMenuDelegate {
         case .idle, .hover, .dragLeft, .dragRight: return ""
         case .working: return "working…"
         case .reviewing: return "planning…"
+        case .subagent: return "subagent…"
+        case .tasking: return "task…"
+        case .compacting: return "compacting…"
         case .waiting: return "needs you!"
         case .celebrating: return "done!"
         case .failed: return "oops!"
@@ -418,8 +428,9 @@ final class PetController: NSObject, NSMenuDelegate {
     }
 
     private var bubbleText: String {
+        guard AppSettings.attentionMode != .quiet else { return "" }
         switch sessionDisplay {
-        case .waiting, .celebrating, .failed:
+        case .waiting, .celebrating, .failed, .subagent, .tasking, .compacting:
             return detailProvider?() ?? statusText
         default:
             return ""
@@ -499,11 +510,27 @@ final class PetController: NSObject, NSMenuDelegate {
         bubblesItem.state = AppSettings.showBubbles ? .on : .off
         menu.addItem(bubblesItem)
 
+        let attentionMenu = NSMenu()
+        for mode in AttentionMode.allCases {
+            let item = NSMenuItem(title: mode.title, action: #selector(selectAttentionMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            item.state = mode == AppSettings.attentionMode ? .on : .off
+            attentionMenu.addItem(item)
+        }
+        let attention = NSMenuItem(title: "Attention", action: nil, keyEquivalent: "")
+        menu.addItem(attention)
+        menu.setSubmenu(attentionMenu, for: attention)
+
         let prefs = NSMenuItem(title: "Settings…", action: #selector(showPreferences), keyEquivalent: "")
         prefs.target = self
         menu.addItem(prefs)
 
         menu.addItem(.separator())
+
+        let dashboard = NSMenuItem(title: "Agent Dashboard…", action: #selector(showDashboard), keyEquivalent: "")
+        dashboard.target = self
+        menu.addItem(dashboard)
 
         let sessionsItem = NSMenuItem(title: "Sessions", action: nil, keyEquivalent: "")
         let sessionsMenu = NSMenu()
@@ -550,6 +577,14 @@ final class PetController: NSObject, NSMenuDelegate {
         installHooks.target = self
         menu.addItem(installHooks)
 
+        let setup = NSMenuItem(title: "Setup Guide…", action: #selector(showOnboarding), keyEquivalent: "")
+        setup.target = self
+        menu.addItem(setup)
+
+        let diagnostics = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
+        diagnostics.target = self
+        menu.addItem(diagnostics)
+
         menu.addItem(.separator())
 
         let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -587,6 +622,15 @@ final class PetController: NSObject, NSMenuDelegate {
         render()
     }
 
+    @objc private func selectAttentionMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = AttentionMode(rawValue: raw)
+        else { return }
+        AppSettings.attentionMode = mode
+        settingsChanged()
+        preferencesWindow?.refresh()
+    }
+
     @objc private func showPreferences() {
         if preferencesWindow == nil {
             let window = PreferencesWindowController()
@@ -598,8 +642,35 @@ final class PetController: NSObject, NSMenuDelegate {
         preferencesWindow?.show()
     }
 
+    @objc private func showDashboard() {
+        if dashboardWindow == nil {
+            let window = DashboardWindowController()
+            window.snapshotProvider = snapshotProvider
+            dashboardWindow = window
+        }
+        dashboardWindow?.show()
+    }
+
+    @objc private func showOnboarding() {
+        if onboardingWindow == nil {
+            let window = OnboardingWindowController()
+            window.snapshotProvider = snapshotProvider
+            window.onInstalledHooks = { [weak self] in
+                self?.preferencesWindow?.refresh()
+            }
+            onboardingWindow = window
+        }
+        onboardingWindow?.show()
+    }
+
+    @objc private func copyDiagnostics() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snapshotProvider?().text ?? "", forType: .string)
+    }
+
     @objc private func installHooks() {
         let result = runHooksInstaller()
+        preferencesWindow?.refresh()
         showAlert(result.ok ? "Hooks installed" : "Hook install failed",
                   result.output.nilIfEmpty ?? "No output.")
     }

@@ -13,6 +13,20 @@ enum ClickAction: String, CaseIterable {
     }
 }
 
+enum AttentionMode: String, CaseIterable {
+    case quiet
+    case normal
+    case loud
+
+    var title: String {
+        switch self {
+        case .quiet: return "Quiet"
+        case .normal: return "Normal"
+        case .loud: return "Loud"
+        }
+    }
+}
+
 enum AppSettings {
     static let defaultPort: UInt16 = 7387
     static let defaultPetID = "codex:wapuu"
@@ -24,6 +38,7 @@ enum AppSettings {
     private static let displayPetSizesKey = "displayPetSizes"
     private static let displayPetPositionsKey = "displayPetPositions"
     private static let lastPetDisplayKey = "lastPetDisplay"
+    private static let onboardingDismissedKey = "onboardingDismissed"
 
     static var listenerPort: UInt16 {
         if let env = ProcessInfo.processInfo.environment["PETS_PORT"].flatMap(UInt16.init) {
@@ -54,6 +69,11 @@ enum AppSettings {
     static var showBubbles: Bool {
         get { defaults.object(forKey: "showBubbles") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "showBubbles") }
+    }
+
+    static var attentionMode: AttentionMode {
+        get { AttentionMode(rawValue: defaults.string(forKey: "attentionMode") ?? "") ?? .normal }
+        set { defaults.set(newValue.rawValue, forKey: "attentionMode") }
     }
 
     static var petSize: CGFloat {
@@ -121,6 +141,11 @@ enum AppSettings {
     static var clickAction: ClickAction {
         get { ClickAction(rawValue: defaults.string(forKey: "clickAction") ?? "") ?? .openClaude }
         set { defaults.set(newValue.rawValue, forKey: "clickAction") }
+    }
+
+    static var onboardingDismissed: Bool {
+        get { defaults.object(forKey: onboardingDismissedKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: onboardingDismissedKey) }
     }
 
     private static var displayPetSizes: [String: Double] {

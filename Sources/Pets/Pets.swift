@@ -1,7 +1,8 @@
 import AppKit
 
 enum DisplayState {
-    case asleep, idle, working, reviewing, waiting, celebrating, failed, hover, dragLeft, dragRight
+    case asleep, idle, working, reviewing, subagent, tasking, compacting, waiting, celebrating, failed
+    case hover, dragLeft, dragRight
 }
 
 enum PetFrame {
@@ -31,6 +32,9 @@ struct Pet {
             .idle: t([base]),
             .working: t(["\(base)⌨️", "\(base)💻"]),
             .reviewing: t(["\(base)📖", "\(base)🔍"]),
+            .subagent: t(["\(base)🧭", "\(base)🔎"]),
+            .tasking: t(["\(base)📋", "\(base)✅"]),
+            .compacting: t(["\(base)🧹", "\(base)📦"]),
             .waiting: t(["\(base)❗", base]),
             .celebrating: t(["\(base)🎉", "\(base)✨"]),
             .failed: t(["\(base)💥", base]),
