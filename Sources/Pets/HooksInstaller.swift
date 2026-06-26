@@ -18,8 +18,12 @@ func claudeSettingsURL() -> URL {
         .appendingPathComponent(".claude/settings.json")
 }
 
+private func petsHookCommand(port: UInt16) -> String {
+    "/usr/bin/curl --silent --max-time 0.5 --connect-timeout 0.2 --header 'Content-Type: application/json' --data-binary @- 'http://127.0.0.1:\(port)/event' >/dev/null 2>&1 || true"
+}
+
 func hooksInstalled(port: UInt16 = serverPort) -> Bool {
-    let url = "http://127.0.0.1:\(port)/event"
+    let command = petsHookCommand(port: port)
     guard let data = try? Data(contentsOf: claudeSettingsURL()),
           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let hooks = root["hooks"] as? [String: Any]
@@ -27,16 +31,16 @@ func hooksInstalled(port: UInt16 = serverPort) -> Bool {
 
     for event in requiredHookEvents {
         guard let groups = hooks[event] as? [[String: Any]] else { return false }
-        var hasURL = false
+        var hasCommand = false
         for group in groups {
             if matcherRequiredEvents.contains(event), group["matcher"] == nil { continue }
             guard let items = group["hooks"] as? [[String: Any]] else { continue }
-            if items.contains(where: { $0["url"] as? String == url }) {
-                hasURL = true
+            if items.contains(where: { $0["type"] as? String == "command" && $0["command"] as? String == command }) {
+                hasCommand = true
                 break
             }
         }
-        if !hasURL { return false }
+        if !hasCommand { return false }
     }
     return true
 }

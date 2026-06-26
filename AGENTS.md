@@ -4,7 +4,7 @@ Native macOS desktop pet that mirrors Claude Code activity. Swift + AppKit, zero
 
 ## Architecture in 30 seconds
 
-Claude Code hooks (`"type": "http"`) POST lifecycle events to a loopback-only listener on `127.0.0.1:7387` (override with `PETS_PORT`):
+Claude Code hooks (`"type": "command"`) silently pipe lifecycle events through `curl` to a loopback-only listener on `127.0.0.1:7387` (override with `PETS_PORT`):
 
 - `Sources/Pets/HttpServer.swift` — hand-rolled HTTP; always replies 200 instantly, never makes Claude Code wait
 - `Sources/Pets/PetState.swift` — rolls all concurrent sessions into one `DisplayState`, with decay (working→idle 3 min, idle evicts 10 min, waiting 30 min)
@@ -40,10 +40,11 @@ tail -f /tmp/pets.log                                                           
 
 - `PreToolUse`/`PostToolUse`-family hook groups **must** have a `"matcher"` (e.g. `"*"`) or they silently never fire; non-tool events fire without one.
 - Hooks aren't snapshotted at session start — running sessions pick up newly installed hooks on their next turn.
+- Direct `"type": "http"` hooks report connection failures when the app is down; keep the installer on the silent command wrapper.
 - `CGImage.cropping(to:)` shares the decoded spritesheet's backing store — copy frames into standalone bitmaps (see `sprite()` in CodexPets.swift) or every pet keeps ~12 MB resident.
 - `scripts/install-hooks.sh` must stay additive and idempotent: back up first, never replace existing settings.json entries.
 
 ## Constraints
 
 - Spritesheet format is Codex CLI's (8×9 grid of 192×208 cells, row meanings in README) — compatibility with Codex pets is a feature, don't fork the format.
-- HTTP listener stays loopback-only and always-200; hooks use `timeout: 1` so a dead app costs Claude Code nothing.
+- HTTP listener stays loopback-only and always-200; hooks use async `timeout: 1` command wrappers so a dead app costs Claude Code nothing and stays quiet.

@@ -33,7 +33,7 @@ final class OnboardingWindowController: NSWindowController {
         title.font = .systemFont(ofSize: 20, weight: .semibold)
 
         let body = NSTextField(wrappingLabelWithString: """
-        AI Companion listens on 127.0.0.1 and sees Claude Code through local HTTP hooks. \
+        AI Companion listens on 127.0.0.1 and sees Claude Code through local hooks. \
         The installer backs up your existing settings and only appends missing hook entries.
         """)
         body.textColor = .secondaryLabelColor

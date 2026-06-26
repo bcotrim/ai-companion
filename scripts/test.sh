@@ -51,6 +51,9 @@ import json, sys
 
 path = sys.argv[1]
 url = "http://127.0.0.1:7399/event"
+command = ("/usr/bin/curl --silent --max-time 0.5 --connect-timeout 0.2 "
+           "--header 'Content-Type: application/json' --data-binary @- "
+           f"'{url}' >/dev/null 2>&1 || true")
 required = [
     "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
     "PostToolUseFailure", "PermissionRequest", "PermissionDenied",
@@ -73,7 +76,11 @@ for event in required:
     assert groups, f"missing {event}"
     if event in matcher_required:
         assert any(group.get("matcher") == "*" for group in groups), f"missing matcher for {event}"
-    assert any(hook.get("url") == url for group in groups for hook in group.get("hooks", [])), event
+    assert any(
+        hook.get("type") == "command" and hook.get("command") == command
+        for group in groups
+        for hook in group.get("hooks", [])
+    ), event
 
 assert any(
     hook.get("command") == "echo keep"
@@ -103,6 +110,7 @@ assert any(
 ), "existing hook was removed"
 assert not any(
     hook.get("url") == "http://127.0.0.1:7399/event"
+    or "http://127.0.0.1:7399/event" in hook.get("command", "")
     for groups in hooks.values()
     for group in groups
     for hook in group.get("hooks", [])
