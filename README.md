@@ -5,10 +5,13 @@ A tiny native macOS desktop pet for [Claude Code](https://claude.com/claude-code
 - **asleep** 💤 — no active sessions
 - **idle** — sessions open, Claude waiting for your next prompt
 - **working…** — Claude is running tools
+- **subagent…** — Claude delegated work to a subagent
+- **task…** — Claude created or completed a task
+- **compacting…** — Claude is compacting context
 - **needs you!** — Claude is waiting for input or a permission approval
 - **done!** 🎉 — brief celebration when Claude finishes responding
 
-Zero dependencies, ~600 lines of Swift, no Electron. ~0% CPU and ~35 MB when idle: the animation timer stops entirely while asleep, spritesheets decode lazily, and the HTTP listener is just an idle socket.
+Zero dependencies, native Swift/AppKit, no Electron. ~0% CPU and ~35 MB when idle: the animation timer stops entirely while asleep, spritesheets decode lazily, and the HTTP listener is just an idle socket.
 
 ## How it works
 
@@ -33,6 +36,8 @@ make app            # or: build the .app bundle yourself (dist/AICompanion.zip)
 ```
 
 The hook installer backs up your settings, appends entries without replacing unrelated hooks, and is idempotent; `make uninstall-hooks` reverts. It also migrates older direct HTTP pet hooks to the silent command wrapper. Prefer manual setup? Merge `hooks/hooks-snippet.json` yourself. Running Claude Code sessions pick the hooks up on their next turn.
+
+Prefer Claude Code's plugin flow? The repo also includes `claude-plugin/ai-companion/`, a self-contained plugin package with the default hook set for port `7387`.
 
 ## Release signing
 
@@ -60,9 +65,19 @@ make notarized-app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" 
 - **Right-click** for the gallery, settings, diagnostics, session state, hook repair, and quit.
 - Everything persists across launches.
 
-Settings include per-display pet size, text label, attention bubbles, click action, hook port, hook install, and launch-at-login when running as the `.app` bundle. The pet remembers its position separately for each display. Attention bubbles stay quiet during normal idle/working states and only call out blocked, failed, or completed turns.
+On first launch, the setup guide can install/repair hooks and copy local diagnostics. Settings include per-display pet size, text label, attention bubbles, attention mode, click action, hook port, hook install, and launch-at-login when running as the `.app` bundle. The pet remembers its position separately for each display.
+
+Attention modes:
+
+- **Quiet** — no attention bubbles or system notifications
+- **Normal** — in-window bubbles for blocked, failed, completed, subagent, task, and compaction states
+- **Loud** — Normal plus macOS notifications for blocked, failed, and completed turns
+
+Right-click **Agent Dashboard…** for active sessions, hook health, last event, and a short in-memory recent-event timeline. Use **Copy Diagnostics** when reporting issues.
 
 Use **Check for Updates…** to ask GitHub for the latest release. When running from `AICompanion.app`, the app verifies the release checksum, replaces itself, and relaunches. Source/bare-binary runs only offer a verified download.
+
+Privacy: the app listens on loopback only, does not collect telemetry, and does not upload hook payloads. See [docs/privacy.md](docs/privacy.md).
 
 ## Codex pets
 
@@ -80,11 +95,11 @@ The format (from open-source `codex-rs/tui/src/pets/`): a folder with `pet.json`
 | 1 | running-right | dragging right |
 | 2 | running-left | dragging left |
 | 3 | waving | done! |
-| 4 | jumping | hover |
+| 4 | jumping | hover / compacting fallback |
 | 5 | failed | oops! (a tool call failed) |
 | 6 | waiting | needs you! — alternates with a couple of waves |
-| 7 | running | working… |
-| 8 | review | planning… (session in plan mode) |
+| 7 | running | working… / subagent fallback |
+| 8 | review | planning… (session in plan mode) / task fallback |
 
 Custom `frame` / `animations` overrides in `pet.json` are honored. Frames are copied into small downscaled bitmaps at load so the full decoded sheets are released immediately.
 
@@ -93,6 +108,12 @@ Validate a pet from the command line:
 ```sh
 make validate-pet PET=/path/to/pet-or.zip
 ```
+
+See [docs/pet-sdk.md](docs/pet-sdk.md) for the compact pet authoring reference.
+
+## Event API
+
+AI Companion accepts Claude Code hook-shaped JSON on `POST /event` and exposes current state on `GET /state`. This makes it possible to build adapters for other local agents without changing the app. See [docs/agent-events.md](docs/agent-events.md).
 
 ## Controlling from Claude
 
@@ -108,6 +129,16 @@ tail -f /tmp/pets.log       # every hook event as it arrives
 ```
 
 The right-click menu also shows whether hooks are installed for the active port, when the last event arrived, and which sessions are currently tracked. Session labels use explicit hook title fields, prompt text, the first real user message in the transcript, or a meaningful working folder name, with internal command wrappers and generated slugs ignored.
+
+## Project health
+
+```sh
+make test   # state self-test, hook installer tests, pet validation, JSON validation
+make build  # release Swift build
+make app    # unsigned/ad-hoc signed app bundle + checksum
+```
+
+GitHub Actions runs the same health checks on macOS and builds the app artifact. Release steps live in [docs/release-checklist.md](docs/release-checklist.md).
 
 Synthetic events work too:
 

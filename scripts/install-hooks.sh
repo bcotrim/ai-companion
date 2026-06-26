@@ -16,9 +16,11 @@ command = ("/usr/bin/curl --silent --max-time 0.5 --connect-timeout 0.2 "
            "--header 'Content-Type: application/json' --data-binary @- "
            f"'{url}' >/dev/null 2>&1 || true")
 default_events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-                  "PostToolBatch",
                   "PostToolUseFailure", "PermissionRequest", "PermissionDenied",
-                  "Notification", "Stop", "SessionEnd"]
+                  "PostToolBatch", "Notification", "SubagentStart", "SubagentStop",
+                  "TaskCreated", "TaskCompleted", "Stop", "StopFailure",
+                  "PreCompact", "PostCompact", "Elicitation", "ElicitationResult",
+                  "SessionEnd"]
 
 settings = {}
 if os.path.exists(path):

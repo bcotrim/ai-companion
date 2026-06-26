@@ -12,11 +12,20 @@ struct HookEvent: Decodable {
     let session_title: String?
     let conversation_title: String?
     let thread_title: String?
+    let subagent_type: String?
+    let agent_name: String?
+    let task_description: String?
+    let task_title: String?
     let cwd: String?
     let transcript_path: String?
 
     var toolName: String? { tool_name?.nilIfEmpty }
-    var detail: String? { toolName ?? message?.nilIfEmpty ?? notification_type?.nilIfEmpty }
+    var detail: String? {
+        for value in [toolName, task_description, task_title, subagent_type, agent_name, message, notification_type] {
+            if let detail = value?.nilIfEmpty { return detail }
+        }
+        return nil
+    }
     var sessionTitle: String? {
         for value in [title, session_title, conversation_title, thread_title, prompt] {
             if let title = value?.sessionTitle { return title }
@@ -46,7 +55,7 @@ struct SessionSummary {
 
 // Main-thread-only by construction: HTTP callbacks and timers all land on the main run loop.
 final class StateModel {
-    private enum SessionState { case idle, working, waiting }
+    private enum SessionState { case idle, working, waiting, subagent, tasking, compacting }
     private struct Session {
         var state: SessionState
         var lastSeen: Date
@@ -64,6 +73,7 @@ final class StateModel {
     private var stalenessTimer: Timer?
     private(set) var display: DisplayState = .asleep
     private(set) var lastEvent: EventSummary?
+    private(set) var recentEvents: [EventSummary] = []
     var onChange: ((DisplayState) -> Void)?
 
     // Codex-style ambient decay: a state that stops receiving events winds down
@@ -76,6 +86,10 @@ final class StateModel {
         guard let name = event.hook_event_name, let id = event.session_id else { return }
         let now = Date()
         lastEvent = EventSummary(name: name, sessionID: id, detail: event.detail, date: now)
+        recentEvents.insert(lastEvent!, at: 0)
+        if recentEvents.count > 50 {
+            recentEvents.removeLast(recentEvents.count - 50)
+        }
 
         func set(_ state: SessionState) {
             var session = sessions[id] ?? Session(state: state, lastSeen: now, title: nil, plan: false,
@@ -100,6 +114,9 @@ final class StateModel {
             set(.idle)
         case "UserPromptSubmit", "PreToolUse", "PostToolUse":
             set(.working)
+        case "PostToolBatch":
+            set(.working)
+            sessions[id]?.note = "Tool batch finished"
         case "PostToolUseFailure":
             // Claude keeps going after a failed tool — brief "oops!", still working.
             set(.working)
@@ -118,6 +135,30 @@ final class StateModel {
         case "PermissionDenied":
             set(.working)
             sessions[id]?.note = "Permission denied"
+        case "SubagentStart":
+            set(.subagent)
+            sessions[id]?.note = event.detail ?? "Subagent running"
+        case "SubagentStop":
+            set(.working)
+            sessions[id]?.note = event.detail ?? "Subagent done"
+        case "TaskCreated":
+            set(.tasking)
+            sessions[id]?.note = event.detail ?? "Task created"
+        case "TaskCompleted":
+            set(.tasking)
+            sessions[id]?.note = event.detail ?? "Task completed"
+        case "PreCompact":
+            set(.compacting)
+            sessions[id]?.note = "Compacting context"
+        case "PostCompact":
+            set(.working)
+            sessions[id]?.note = "Context compacted"
+        case "Elicitation":
+            set(.waiting)
+            sessions[id]?.note = event.detail ?? "Input needed"
+        case "ElicitationResult":
+            set(.working)
+            sessions[id]?.note = "Input received"
         case "Notification":
             // "needs you" only when blocked mid-task (permission prompt, question).
             // The post-Stop "waiting for your input" notification arrives while the
@@ -133,6 +174,14 @@ final class StateModel {
             celebrateUntil = now.addingTimeInterval(2.5)
             celebrateTimer?.invalidate()
             celebrateTimer = Timer.scheduledTimer(withTimeInterval: 2.6, repeats: false) { [weak self] _ in
+                self?.recompute()
+            }
+        case "StopFailure":
+            set(.idle)
+            sessions[id]?.note = event.detail ?? "Turn failed"
+            failedUntil = now.addingTimeInterval(5)
+            failedTimer?.invalidate()
+            failedTimer = Timer.scheduledTimer(withTimeInterval: 5.1, repeats: false) { [weak self] _ in
                 self?.recompute()
             }
         case "SessionEnd":
@@ -151,6 +200,9 @@ final class StateModel {
         if Date() < failedUntil { new = .failed }
         else if !workers.isEmpty { new = workers.allSatisfy(\.plan) ? .reviewing : .working }
         else if active.contains(where: { $0.state == .waiting }) { new = .waiting }
+        else if active.contains(where: { $0.state == .compacting }) { new = .compacting }
+        else if active.contains(where: { $0.state == .subagent }) { new = .subagent }
+        else if active.contains(where: { $0.state == .tasking }) { new = .tasking }
         else if Date() < celebrateUntil { new = .celebrating }
         else if !sessions.isEmpty { new = .idle }
         else { new = .asleep }
@@ -190,6 +242,15 @@ final class StateModel {
             "display": "\(display)",
             "sessions": sessionItems,
         ]
+        root["recentEvents"] = recentEvents.prefix(10).map { event in
+            var item: [String: Any] = [
+                "name": event.name,
+                "sessionID": event.sessionID,
+                "secondsAgo": Int(-event.date.timeIntervalSinceNow),
+            ]
+            if let detail = event.detail { item["detail"] = detail }
+            return item
+        }
         if let lastEvent {
             var event: [String: Any] = [
                 "name": lastEvent.name,
@@ -225,6 +286,12 @@ final class StateModel {
             return sessions.values.first { $0.state == .working }?.lastTool.map { "Using \($0)" }
         case .reviewing:
             return "Planning"
+        case .subagent:
+            return sessions.values.first { $0.state == .subagent }?.note ?? "Subagent running"
+        case .tasking:
+            return sessions.values.first { $0.state == .tasking }?.note ?? "Task running"
+        case .compacting:
+            return "Compacting context"
         default:
             return nil
         }
@@ -235,6 +302,12 @@ final class StateModel {
             let quiet = -s.lastSeen.timeIntervalSinceNow
             switch s.state {
             case .working where quiet > Self.workingDecay:
+                sessions[id]?.state = .idle
+            case .subagent where quiet > Self.workingDecay:
+                sessions[id]?.state = .idle
+            case .tasking where quiet > Self.workingDecay:
+                sessions[id]?.state = .idle
+            case .compacting where quiet > Self.workingDecay:
                 sessions[id]?.state = .idle
             case .idle where quiet > Self.idleDecay:
                 sessions[id] = nil
@@ -253,6 +326,9 @@ final class StateModel {
         case .idle: return "idle"
         case .working: return "working"
         case .waiting: return "waiting"
+        case .subagent: return "subagent"
+        case .tasking: return "tasking"
+        case .compacting: return "compacting"
         }
     }
 }
