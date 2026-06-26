@@ -12,7 +12,7 @@ Zero dependencies, ~600 lines of Swift, no Electron. ~0% CPU and ~35 MB when idl
 
 ## How it works
 
-Claude Code [hooks](https://code.claude.com/docs/en/hooks) support `"type": "http"`, which POSTs each lifecycle event (SessionStart, PreToolUse, Notification, Stop, …) to a URL. The app runs a minimal hand-rolled HTTP listener on `127.0.0.1:7387`, replies 200 instantly, and rolls all concurrent Claude sessions up into one pet state. Hooks use `timeout: 1`, and when the app isn't running, loopback connection-refused fails in microseconds — Claude Code is never slowed down.
+Claude Code [hooks](https://code.claude.com/docs/en/hooks) run a silent command hook for each lifecycle event (SessionStart, PreToolUse, Notification, Stop, …). The hook pipes Claude's JSON event to `curl`, which POSTs it to the app's loopback-only listener on `127.0.0.1:7387`. The app replies 200 instantly and rolls all concurrent Claude sessions up into one pet state. Hooks run async with `timeout: 1`, and when the app isn't running, connection-refused is swallowed — Claude Code is neither slowed down nor filled with hook errors.
 
 ## Install
 
@@ -32,7 +32,7 @@ make install-hooks  # safely merge hooks into ~/.claude/settings.json
 make app            # or: build the .app bundle yourself (dist/AICompanion.zip)
 ```
 
-The hook installer backs up your settings, appends (never replaces) entries, and is idempotent; `make uninstall-hooks` reverts. Prefer manual setup? Merge `hooks/hooks-snippet.json` yourself. Running Claude Code sessions pick the hooks up on their next turn.
+The hook installer backs up your settings, appends entries without replacing unrelated hooks, and is idempotent; `make uninstall-hooks` reverts. It also migrates older direct HTTP pet hooks to the silent command wrapper. Prefer manual setup? Merge `hooks/hooks-snippet.json` yourself. Running Claude Code sessions pick the hooks up on their next turn.
 
 ## Release signing
 
@@ -123,4 +123,5 @@ States decay Codex-style when a session goes quiet: `working` → `idle` after 3
 
 - `PreToolUse`/`PostToolUse` hook groups **must** have a `"matcher"` (e.g. `"*"`) or they silently never fire; non-tool events fire without one.
 - Hooks are not snapshotted at session start: running sessions pick up newly installed hooks on their next turn.
+- Direct `"type": "http"` hooks are non-blocking when the app is down, but Claude Code still reports connection failures. Use the installed command wrapper so missing-app delivery failures stay silent.
 - When slicing the spritesheet, `CGImage.cropping(to:)` shares the full decoded sheet's backing store — copy frames into standalone bitmaps or every pet keeps ~12 MB resident.
